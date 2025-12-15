@@ -12,11 +12,21 @@ print(f"Loading MiDaS model on device: {device}...")
 model_type = "DPT_Large"
 
 # --- Configuration for Pointillism and Depth ---
-W_DOTS = 120          # Grid width for dot calculations (Lower = bigger dots)
+W_DOTS = 160        # Grid width for dot calculations (Lower = bigger dots)
+W_DOTS_MIN = 40
 DOT_SIZE_FACTOR = 0.66    # Size of the rendered dot within its block
-ATTENUATION_STRENGTH = 0.66 # How much depth affects brightness (0.0 to 1.0)
-GAMMA = 3  # Controls the strength of the contrast boost (try 1.5 to 3.0)
-ASCII_CHARS = list(" .'`^,:\";~+=*o#MW@")
+ATTENUATION_STRENGTH = 0.7 # How much depth affects brightness (0.0 to 1.0)
+GAMMA = 0.9  # Controls the strength of the contrast boost (try 1.5 to 3.0)
+ASCII_CHARS = list(".'`^,:\";~+=*o#MW@")
+
+BRIGHT_CHARS = list("0OZmwqpdbkhao*#MW&8%B@$") # ~20 dense characters
+
+# 2. Lighter Characters (Used for DARKER parts of the image)
+# These characters are sparse and let the background show through.
+DARK_CHARS = list(".'`^\",:;Il!i><~+_-?") # ~20 sparse/light characters
+ASCII_MASTER_CHARS = DARK_CHARS + BRIGHT_CHARS
+PALETTE_THRESHOLD = 0.5
+MIN_BRIGHTNESS_FLOOR = 5 # Minimum brightness (0-255) to ensure texture is always present
 
 try:
     midas = torch.hub.load("intel-isl/MiDaS", model_type)
@@ -83,30 +93,149 @@ def frame_to_point_grid_ascii(frame, normalized_depth):
     effective_brightness = small_gray_frame * attenuation_factor
     effective_brightness = np.clip(effective_brightness, 0, 255)
 
+    # Ensure that the minimum brightness is at least 10, preventing a pure black background.
 
-    # --- NEW STEP 3: APPLY HIGH CONTRAST (GAMMA CORRECTION) ---
+    # # --- NEW STEP 3: APPLY HIGH CONTRAST (GAMMA CORRECTION) ---
 
     
-    # Normalize brightness to [0, 1]
-    normalized_for_gamma = effective_brightness / 255.0
+    # # Normalize brightness to [0, 1]
+    # normalized_for_gamma = effective_brightness / 255.0
     
-    # Apply the power curve: pushes dark values much darker
-    gamma_corrected_brightness = np.power(normalized_for_gamma, GAMMA)
+    # # Apply the power curve: pushes dark values much darker
+    # gamma_corrected_brightness = np.power(normalized_for_gamma, GAMMA)
     
-    # Scale back to [0, 255]
+    # # Scale back to [0, 255]
+    # final_brightness = (gamma_corrected_brightness * 255.0).astype(np.float32)
+    # final_brightness = np.clip(final_brightness, 0, 255)
+
+    # # Scale the brightness (0-255) to an index within the length of the ASCII_CHARS array
+    # num_chars = len(ASCII_CHARS)
+    
+    # # We want a high effective_brightness (255) to map to a high index (dense chars like '@')
+    # # Use integer division to get the index.
+    # brightness_indices = (final_brightness * num_chars / 256).astype(np.uint8)
+    
+    # # We return the grid of indices, not a dot mask
+    # return brightness_indices
+# 3. APPLY HIGH CONTRAST (GAMMA CORRECTION)
+    normalized_brightness = effective_brightness / 255.0
+    gamma_corrected_brightness = np.power(normalized_brightness, GAMMA)
     final_brightness = (gamma_corrected_brightness * 255.0).astype(np.float32)
     final_brightness = np.clip(final_brightness, 0, 255)
+    final_brightness = np.maximum(final_brightness, MIN_BRIGHTNESS_FLOOR)
+    # 4. MULTI-PALETTE MAPPING (The new core logic)
+    
+    # Grid of normalized final brightness values [0.0, 1.0]
+    final_normalized = final_brightness / 255.0 
+    
+    # Initialize the output grid with 255 (a marker for error/boundary)
+    # The output needs to store which character index to use across the two palettes
+    ascii_index_grid = np.zeros_like(final_brightness, dtype=np.uint8)
 
-    # Scale the brightness (0-255) to an index within the length of the ASCII_CHARS array
-    num_chars = len(ASCII_CHARS)
+    # --- A. Process the DARK (Lower) Brightness Range ---
+    # Create a mask for all pixels darker than the threshold
+    dark_mask = final_normalized <= PALETTE_THRESHOLD
     
-    # We want a high effective_brightness (255) to map to a high index (dense chars like '@')
-    # Use integer division to get the index.
-    brightness_indices = (final_brightness * num_chars / 256).astype(np.uint8)
+    if np.any(dark_mask):
+        # Only consider brightness values that fall below the threshold
+        dark_values = final_normalized[dark_mask]
+        
+        # 1. Remap the dark values from [0, THRESHOLD] to [0, 1]
+        remapped_dark_values = dark_values / PALETTE_THRESHOLD
+        
+        # 2. Map the remapped [0, 1] values to the index of DARK_CHARS list
+        num_dark_chars = len(DARK_CHARS)
+        dark_indices = (remapped_dark_values * num_dark_chars).astype(np.uint8)
+        
+        # Clip to ensure index does not exceed list bounds
+        dark_indices = np.clip(dark_indices, 0, num_dark_chars - 1)
+        
+        # Apply the indices back to the final output grid
+        ascii_index_grid[dark_mask] = dark_indices
+
+
+    # --- B. Process the BRIGHT (Upper) Brightness Range ---
+    # Create a mask for all pixels brighter than the threshold
+    bright_mask = final_normalized > PALETTE_THRESHOLD
+
+    if np.any(bright_mask):
+        # Only consider brightness values that fall above the threshold
+        bright_values = final_normalized[bright_mask]
+        
+        # 1. Remap the bright values from [THRESHOLD, 1.0] to [0, 1]
+        # Range size is (1.0 - PALETTE_THRESHOLD). We subtract the threshold, then scale.
+        range_size = 1.0 - PALETTE_THRESHOLD
+        remapped_bright_values = (bright_values - PALETTE_THRESHOLD) / range_size
+        
+        # 2. Map the remapped [0, 1] values to the index of BRIGHT_CHARS list
+        num_bright_chars = len(BRIGHT_CHARS)
+        bright_indices = (remapped_bright_values * num_bright_chars).astype(np.uint8)
+        
+        # Clip to ensure index does not exceed list bounds
+        bright_indices = np.clip(bright_indices, 0, num_bright_chars - 1)
+        
+        # Apply the indices back to the final output grid, but ADD an OFFSET!
+        # The offset ensures the create_ascii_frame function knows which palette to use.
+        # We use len(DARK_CHARS) as the offset for the bright indices.
+        offset = len(DARK_CHARS) 
+        ascii_index_grid[bright_mask] = bright_indices + offset
+
+    return ascii_index_grid
     
-    # We return the grid of indices, not a dot mask
-    return brightness_indices
+# Rename the function:
+def calculate_ascii_index_and_brightness(frame, normalized_depth):
+    gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    h, w = gray_frame.shape
+    H_DOTS = int(h * W_DOTS / w) 
     
+    small_gray_frame = cv2.resize(gray_frame, (W_DOTS, H_DOTS), interpolation=cv2.INTER_LINEAR)
+    small_depth_map = cv2.resize(normalized_depth, (W_DOTS, H_DOTS), interpolation=cv2.INTER_LINEAR)
+    
+    # 2. Apply Depth Attenuation: B_eff = B * (1 - D_norm * Strength)
+    attenuation_factor = 1.0 - (small_depth_map * ATTENUATION_STRENGTH)
+    effective_brightness = small_gray_frame * attenuation_factor
+    effective_brightness = np.clip(effective_brightness, 0, 255)
+
+    # 3. APPLY HIGH CONTRAST (GAMMA CORRECTION)
+    normalized_brightness = effective_brightness / 255.0
+    gamma_corrected_brightness = np.power(normalized_brightness, GAMMA)
+    final_brightness = (gamma_corrected_brightness * 255.0).astype(np.float32)
+    final_brightness = np.clip(final_brightness, 0, 255)
+    
+    # CRITICAL: Apply minimum brightness floor *after* gamma.
+    final_brightness = np.maximum(final_brightness, MIN_BRIGHTNESS_FLOOR)
+    
+    # 4. MULTI-PALETTE MAPPING (The core logic to find the character index)
+    final_normalized = final_brightness / 255.0 
+    ascii_index_grid = np.zeros_like(final_brightness, dtype=np.uint8)
+
+    # ... (A & B: The Dark/Bright Masking Logic remains exactly the same) ...
+    
+    # Re-insert the Dark/Bright masking logic here:
+    # --- A. Process the DARK (Lower) Brightness Range ---
+    dark_mask = final_normalized <= PALETTE_THRESHOLD
+    if np.any(dark_mask):
+        dark_values = final_normalized[dark_mask]
+        remapped_dark_values = dark_values / PALETTE_THRESHOLD
+        num_dark_chars = len(DARK_CHARS)
+        dark_indices = (remapped_dark_values * num_dark_chars).astype(np.uint8)
+        dark_indices = np.clip(dark_indices, 0, num_dark_chars - 1)
+        ascii_index_grid[dark_mask] = dark_indices
+
+    # --- B. Process the BRIGHT (Upper) Brightness Range ---
+    bright_mask = final_normalized > PALETTE_THRESHOLD
+    if np.any(bright_mask):
+        bright_values = final_normalized[bright_mask]
+        range_size = 1.0 - PALETTE_THRESHOLD
+        remapped_bright_values = (bright_values - PALETTE_THRESHOLD) / range_size
+        num_bright_chars = len(BRIGHT_CHARS)
+        bright_indices = (remapped_bright_values * num_bright_chars).astype(np.uint8)
+        bright_indices = np.clip(bright_indices, 0, num_bright_chars - 1)
+        offset = len(DARK_CHARS) 
+        ascii_index_grid[bright_mask] = bright_indices + offset
+    
+    # CHANGE: Return both index grid and the final 0-255 brightness grid
+    return ascii_index_grid, final_brightness
 
 def frame_to_point_grid(frame, normalized_depth):
     # 1. Grayscale and Shrink
@@ -209,10 +338,13 @@ def create_ascii_frame(brightness_indices, original_frame):
     for i in range(H_DOTS):
         for j in range(W_DOTS_actual):
             # 1. Get the ASCII character
+            # 1. Get the character index from the combined master list
             index = brightness_indices[i, j]
+            
+            # Use the combined master list
             # Handle potential overflow if index is out of bounds due to rounding
             index = np.clip(index, 0, len(ASCII_CHARS) - 1)
-            char = ASCII_CHARS[index]
+            char = ASCII_MASTER_CHARS[index]
             
             # 2. Calculate drawing position
             x = j * block_w
@@ -233,6 +365,72 @@ def create_ascii_frame(brightness_indices, original_frame):
             
     return output_frame
 
+# Rename and add the density_mask argument
+def create_ascii_frame_with_density(brightness_indices, density_mask, original_frame):
+    H_DOTS, W_DOTS_actual = brightness_indices.shape
+    
+    target_h = original_frame.shape[0] 
+    target_w = original_frame.shape[1] 
+
+    # --- RECALCULATE BLOCK SIZES BASED ON TARGET FRAME ---
+    # This calculation is now guaranteed to result in a block size that is at least 1.
+    block_w = target_w // W_DOTS_actual
+    block_h = target_h // H_DOTS
+    
+    block_w = max(1, block_w)
+    block_h = max(1, block_h)
+    
+    # --- DYNAMIC FONT SCALE CALCULATION ---
+    # FONT_SCALE should be proportional to the block height. 
+    # Use 0.8 to give a little space between characters.
+    FONT = cv2.FONT_HERSHEY_SIMPLEX
+    FONT_SCALE = block_h / 20.0  # Heuristic: 20 is approx. character height at scale 1.0
+    FONT_SCALE = FONT_SCALE * 0.9 # Fine-tuning for space
+    FONT_SCALE = max(0.1, FONT_SCALE)
+    THICKNESS = max(1, int(FONT_SCALE * 1.5)) # Use slightly thicker line for better visibility
+    
+    # The output frame must match the full size of the original frame for proper stacking
+    output_frame = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+    
+    output_frame = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+
+    # The space character is what we draw when the density mask is 0.
+    # We must assume the space is NOT in ASCII_MASTER_CHARS to get a true black hole.
+    # If you want a subtle texture, set SPACE_CHAR to a period ('.').
+    # For a true sparse background, we'll draw nothing (no cv2.putText call).
+    
+    # --- Loop through the index grid and draw the corresponding character ---
+    for i in range(H_DOTS):
+        for j in range(W_DOTS_actual):
+            
+            # Check the Density Mask:
+            if density_mask[i, j] == 1:
+                # DENSITY IS HIGH ENOUGH (Foreground/Bright/Close): Draw the calculated character.
+                
+                # 1. Get the ASCII character
+                index = brightness_indices[i, j]
+                # Ensure index is within the master list bounds
+                index = np.clip(index, 0, len(ASCII_MASTER_CHARS) - 1)
+                char = ASCII_MASTER_CHARS[index]
+                
+                # 2. Calculate drawing position
+                x = j * block_w
+                y = i * block_h
+                
+                # Draw the character
+                cv2.putText(
+                    output_frame,
+                    char,
+                    (x, y + block_h - 1),
+                    FONT,
+                    FONT_SCALE,
+                    (255, 255, 255), 
+                    THICKNESS,
+                    cv2.LINE_AA
+                )
+            # else: DENSITY IS TOO LOW (Background/Dark/Far): Draw nothing (leave it black)
+            
+    return output_frame
 
 def depth_loop():
     # Initialize camera input
@@ -267,7 +465,25 @@ def depth_loop():
 
         # Calculate Depth Map
         normalized_depth = get_normalized_depth_map(frame)
-    
+
+    # --- NEW CODE BLOCK ---
+        # 1. Convert Frame and Depth to Dot Mask (Pointillism - unchanged)
+        dot_mask = frame_to_point_grid(frame, normalized_depth)
+        
+        # 1.1 Calculate ASCII Index and Brightness (NEW FUNCTION)
+        # ascii_index_grid holds WHICH character to use.
+        # final_brightness_grid holds the final 0-255 brightness value.
+        ascii_index_grid, final_brightness_grid = calculate_ascii_index_and_brightness(frame, normalized_depth)
+        
+        # 1.2 Calculate Density Mask (Stochastic Sampling)
+        
+        # Convert final_brightness_grid [0-255] to density probability [0.0-1.0]
+        # Low brightness (background) means low density probability.
+        density_probability_grid = final_brightness_grid / 255.0
+        
+        # Apply Stochastic Sampling (similar to the Pointillism mask):
+        random_grid = np.random.rand(*density_probability_grid.shape)
+        density_mask = (density_probability_grid > random_grid).astype(np.uint8)
 
     # Convert the normalized depth map [0, 1] back to a visual 8-bit image [0, 255]
         # Since we INVERTED the depth map (0=Closest, 1=Farthest), 
@@ -284,7 +500,7 @@ def depth_loop():
         
         # 2. Render Dot Mask to the Final Frame
         pointillism_frame = create_pointillism_frame(dot_mask, frame)
-        ascii_frame = create_ascii_frame(ascii_index_grid, frame)
+        ascii_frame = create_ascii_frame_with_density(ascii_index_grid, density_mask, frame)
         
         # --- FIX: RESIZE FINAL_FRAME TO MATCH INPUT FRAME HEIGHT ---
         target_height = frame.shape[0]
