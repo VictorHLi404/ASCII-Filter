@@ -1,15 +1,9 @@
 import torch
 import cv2
 import numpy as np
+from depth_module.depth_filter import DepthFilter
 
 # --- Configuration ---
-# Use the CPU for now since the GPU installation failed
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-print(f"Loading MiDaS model on device: {device}...")
-
-# Load MiDaS model (MiDaS_small is fast)
-model_type = "DPT_Large"
 
 # --- Configuration for Pointillism and Depth ---
 W_DOTS = 160        # Grid width for dot calculations (Lower = bigger dots)
@@ -27,58 +21,6 @@ DARK_CHARS = list(".'`^\",:;Il!i><~+_-?") # ~20 sparse/light characters
 ASCII_MASTER_CHARS = DARK_CHARS + BRIGHT_CHARS
 PALETTE_THRESHOLD = 0.5
 MIN_BRIGHTNESS_FLOOR = 5 # Minimum brightness (0-255) to ensure texture is always present
-
-try:
-    midas = torch.hub.load("intel-isl/MiDaS", model_type)
-    midas.to(device)
-    midas.eval()
-    
-    # Load MiDaS transforms
-    midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
-
-    if model_type == "DPT_Large" or model_type == "DPT_Hybrid":
-        transform = midas_transforms.dpt_transform
-    else:
-        transform = midas_transforms.small_transform
-    
-    print(f"MiDaS model '{model_type}' loaded successfully.")
-
-except Exception as e:
-    print(f"Error loading MiDaS model or dependencies: {e}")
-    print("Please ensure you installed torch, torchvision, torchaudio, and timm.")
-    exit()
-
-def get_normalized_depth_map(frame):
-    """Generates and normalizes the depth map using MiDaS."""
-    img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    
-    # Apply MiDaS transformation (resizing, normalization)
-    input_batch = transform(img).to(device)
-
-    with torch.no_grad():
-        prediction = midas(input_batch)
-        
-        # Resize the output prediction to the original frame size
-        prediction = torch.nn.functional.interpolate(
-            prediction.unsqueeze(1),
-            size=img.shape[:2],
-            mode="bicubic",
-            align_corners=False,
-        ).squeeze()
-
-    depth_map = prediction.cpu().numpy()
-    
-    # Normalize depth map to range [0, 1] for visual/functional use
-    depth_min = depth_map.min()
-    depth_max = depth_map.max()
-    normalized_depth = (depth_map - depth_min) / (depth_max - depth_min) if depth_max - depth_min > 0 else np.zeros_like(depth_map)
-
-    if depth_max - depth_min > 0:
-        normalized_depth_inverted = 1.0 - normalized_depth
-    else:
-        normalized_depth_inverted = np.zeros_like(depth_map)
-
-    return normalized_depth_inverted
 
 def frame_to_point_grid_ascii(frame, normalized_depth):
     gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -438,7 +380,7 @@ def depth_loop():
     if not cap.isOpened():
         print("Error: Could not open camera.")
         return
-
+    depthFilter = DepthFilter(model_type="DPT_Large")
     print("Starting MiDaS processing. Initial frames will be slow (CPU mode).")
 
     while True:
@@ -449,22 +391,7 @@ def depth_loop():
         # Flip the frame
         frame = cv2.flip(frame, 1)
 
-        # # Calculate Depth Map
-        # normalized_depth = get_normalized_depth_map(frame)
-        
-        # # Convert depth map back to a visual 8-bit image for display
-        # # The display image shows depth (0=black=closest, 255=white=farthest)
-        # depth_display = (normalized_depth * 255).astype(np.uint8)
-        # depth_display = cv2.cvtColor(depth_display, cv2.COLOR_GRAY2BGR)
-
-
-        # Concatenate the original frame and the depth map for comparison
-
-
-        # cv2.imshow('Original | MiDaS Depth (Press Q to Quit)', output_display)
-
-        # Calculate Depth Map
-        normalized_depth = get_normalized_depth_map(frame)
+        normalized_depth = depthFilter.get_normalized_depth_map(frame)
 
     # --- NEW CODE BLOCK ---
         # 1. Convert Frame and Depth to Dot Mask (Pointillism - unchanged)
