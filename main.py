@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Optional
 import json
 
-
 @dataclass
 class FilterSettings:
     W_DOTS: int
@@ -20,15 +19,18 @@ class AsciiVideoEditor:
 
     SETTINGS_FILE_PATH = "settings/settings.json"
     MAIN_WINDOW_NAME = "ASCII Depth Filter | Press Q to Quit"
+    MODEL_TYPE = "DPT_Large"
     BRIGHT_CHARS = list("0Zwpbho#W8B")
     DARK_CHARS = list('.`":I!>~_?')
     ASCII_MASTER_CHARS = DARK_CHARS + BRIGHT_CHARS
 
     def __init__(self):
-        if self.load_saved_settings() is not None:
-            self.settings = self.load_saved_settings()
+        if self.load_saved_settings_from_file() is not None:
+            self.settings = self.load_saved_settings_from_file()
         else:
             self.settings = self.load_default_settings()
+        self.depth_filter = DepthFilter(AsciiVideoEditor.MODEL_TYPE)
+        print("Starting MiDaS processor.")
 
     def load_default_settings(self) -> FilterSettings:
         try:
@@ -46,7 +48,7 @@ class AsciiVideoEditor:
         except:
             raise Exception("Failed to successfully parse default settings.")
 
-    def load_saved_settings(self) -> Optional[FilterSettings]:
+    def load_saved_settings_from_file(self) -> Optional[FilterSettings]:
         try:
             with open(AsciiVideoEditor.SETTINGS_FILE_PATH, "r") as file:
                 json_settings = json.load(file)
@@ -64,7 +66,7 @@ class AsciiVideoEditor:
         except:
             raise Exception("Failed to successfully parse saved settings.")
 
-    def save_settings(self, filter_settings: FilterSettings) -> None:
+    def write_settings_to_file(self, filter_settings: FilterSettings) -> None:
         try:
             try:
                 with open(AsciiVideoEditor.SETTINGS_FILE_PATH, "r") as file:
@@ -79,6 +81,30 @@ class AsciiVideoEditor:
                 json.dump(json_settings, file, indent=4)
         except:
             raise Exception("Failed to save filter settings.")
+
+    def save_settings(self):
+        settings_to_save = {
+            "W_DOTS": max(
+                40,
+                cv2.getTrackbarPos(
+                    "RESOLUTION", AsciiVideoEditor.MAIN_WINDOW_NAME
+                ),
+            ),
+            "ATTENUATION_STRENGTH": cv2.getTrackbarPos(
+                "DEPTH ATTENUATION", AsciiVideoEditor.MAIN_WINDOW_NAME
+            ),
+            "GAMMA": cv2.getTrackbarPos(
+                "GAMMA", AsciiVideoEditor.MAIN_WINDOW_NAME
+            ),
+            "PALETTE_THRESHOLD": cv2.getTrackbarPos(
+                "PALETTE THRESHOLD", AsciiVideoEditor.MAIN_WINDOW_NAME
+            ),
+            "BRIGHTNESS_FLOOR": cv2.getTrackbarPos(
+                "BRIGHTNESS FLOOR", AsciiVideoEditor.MAIN_WINDOW_NAME
+            ),
+        }
+        self.write_settings_to_file(settings_to_save)
+        print("Saved current settings to file.")
 
     def setup_trackbars(self):
         cv2.namedWindow(AsciiVideoEditor.MAIN_WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
@@ -208,16 +234,15 @@ class AsciiVideoEditor:
         return final_ascii_frame
         pass
 
-    def run_display(self):
+    def run_live_camera_display(self):
         # Initialize camera input
         cap = cv2.VideoCapture(0)
         if not cap.isOpened():
             print("Error: Could not open camera.")
             return
-        depth_filter = DepthFilter(model_type="DPT_Large")
-        print("Starting MiDaS processing. Initial frames will be slow (CPU mode).")
 
         self.setup_trackbars()
+
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -225,7 +250,7 @@ class AsciiVideoEditor:
 
             # Flip the frame
             frame = cv2.flip(frame, 1)
-            normalized_depth = depth_filter.get_normalized_depth_map(frame)
+            normalized_depth = self.depth_filter.get_normalized_depth_map(frame)
             depth_frame = self.process_depth_frame(frame, normalized_depth)
             ascii_frame = self.process_ascii_frame(frame, normalized_depth)
 
@@ -244,28 +269,7 @@ class AsciiVideoEditor:
             if key == ord("q"):
                 break
             elif key == ord("s"):
-                settings_to_save = {
-                    "W_DOTS": max(
-                        40,
-                        cv2.getTrackbarPos(
-                            "RESOLUTION", AsciiVideoEditor.MAIN_WINDOW_NAME
-                        ),
-                    ),
-                    "ATTENUATION_STRENGTH": cv2.getTrackbarPos(
-                        "DEPTH ATTENUATION", AsciiVideoEditor.MAIN_WINDOW_NAME
-                    ),
-                    "GAMMA": cv2.getTrackbarPos(
-                        "GAMMA", AsciiVideoEditor.MAIN_WINDOW_NAME
-                    ),
-                    "PALETTE_THRESHOLD": cv2.getTrackbarPos(
-                        "PALETTE THRESHOLD", AsciiVideoEditor.MAIN_WINDOW_NAME
-                    ),
-                    "BRIGHTNESS_FLOOR": cv2.getTrackbarPos(
-                        "BRIGHTNESS FLOOR", AsciiVideoEditor.MAIN_WINDOW_NAME
-                    ),
-                }
-                self.save_settings(settings_to_save)
-                print("Saved current settings to file.")
+                self.save_settings()
 
         cap.release()
         cv2.destroyAllWindows()
@@ -274,4 +278,4 @@ class AsciiVideoEditor:
 
 if __name__ == "__main__":
     video_editor = AsciiVideoEditor()
-    video_editor.run_display()
+    video_editor.run_live_camera_display()
