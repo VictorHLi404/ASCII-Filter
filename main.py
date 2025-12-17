@@ -19,6 +19,7 @@ class FilterSettings:
 class AsciiVideoEditor:
 
     SETTINGS_FILE_PATH = "settings/settings.json"
+    MAIN_WINDOW_NAME = "ASCII Depth Filter | Press Q to Quit"
     BRIGHT_CHARS = list("0Zwpbho#W8B")
     DARK_CHARS = list('.`":I!>~_?')
     ASCII_MASTER_CHARS = DARK_CHARS + BRIGHT_CHARS
@@ -79,26 +80,21 @@ class AsciiVideoEditor:
         except:
             raise Exception("Failed to save filter settings.")
 
-    def run_display(self):
-        # Initialize camera input
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            print("Error: Could not open camera.")
-            return
-        depth_filter = DepthFilter(model_type="DPT_Large")
-        print("Starting MiDaS processing. Initial frames will be slow (CPU mode).")
-
-        MAIN_WINDOW_NAME = "ACII Depth Filter | Press Q to Quit"
-        cv2.namedWindow(MAIN_WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
+    def setup_trackbars(self):
+        cv2.namedWindow(AsciiVideoEditor.MAIN_WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
 
         cv2.createTrackbar(
-            "RESOLUTION", MAIN_WINDOW_NAME, self.settings.W_DOTS, 300, lambda x: None
+            "RESOLUTION",
+            AsciiVideoEditor.MAIN_WINDOW_NAME,
+            self.settings.W_DOTS,
+            300,
+            lambda x: None,
         )
-        cv2.setTrackbarMin("RESOLUTION", MAIN_WINDOW_NAME, 40)
+        cv2.setTrackbarMin("RESOLUTION", AsciiVideoEditor.MAIN_WINDOW_NAME, 40)
 
         cv2.createTrackbar(
             "DEPTH ATTENUATION",
-            MAIN_WINDOW_NAME,  # Use the main window name
+            AsciiVideoEditor.MAIN_WINDOW_NAME,  # Use the main window name
             self.settings.ATTENUATION_STRENGTH,
             100,
             lambda x: None,
@@ -108,30 +104,120 @@ class AsciiVideoEditor:
         # Range: 1 to 300 (scaled to 0.01 to 3.00)
         cv2.createTrackbar(
             "GAMMA",
-            MAIN_WINDOW_NAME,  # Use the main window name
+            AsciiVideoEditor.MAIN_WINDOW_NAME,  # Use the main window name
             self.settings.GAMMA,
             300,
             lambda x: None,
         )
-        cv2.setTrackbarMin("GAMMA", MAIN_WINDOW_NAME, 1)
+        cv2.setTrackbarMin("GAMMA", AsciiVideoEditor.MAIN_WINDOW_NAME, 1)
 
         cv2.createTrackbar(
             "PALETTE THRESHOLD",
-            MAIN_WINDOW_NAME,
+            AsciiVideoEditor.MAIN_WINDOW_NAME,
             self.settings.PALETTE_THRESHOLD,
             100,
             lambda x: None,
         )
-        cv2.setTrackbarMin("PALETTE THRESHOLD", MAIN_WINDOW_NAME, 1)
+        cv2.setTrackbarMin("PALETTE THRESHOLD", AsciiVideoEditor.MAIN_WINDOW_NAME, 1)
 
         cv2.createTrackbar(
             "BRIGHTNESS FLOOR",
-            MAIN_WINDOW_NAME,
+            AsciiVideoEditor.MAIN_WINDOW_NAME,
             self.settings.BRIGHTNESS_FLOOR,
             255,
             lambda x: None,
         )
 
+    def process_depth_frame(self, frame, normalized_depth):
+        # Convert the normalized depth map [0, 1] back to a visual 8-bit image [0, 255]
+        # Since we INVERTED the depth map (0=Closest, 1=Farthest),
+        # the display image will show: Black (0) = Closest, White (255) = Farthest.
+        depth_frame = (normalized_depth * 255).astype(np.uint8)
+
+        # Convert the grayscale depth map to a 3-channel BGR image for stacking
+        depth_display = cv2.cvtColor(depth_frame, cv2.COLOR_GRAY2BGR)
+        return depth_display
+
+    def process_ascii_frame(self, frame, normalized_depth):
+        ascii_index_grid, final_brightness_grid = (
+            AsciiEffect.calculate_ascii_index_and_brightness(
+                frame,
+                normalized_depth,
+                max(
+                    40,
+                    cv2.getTrackbarPos("RESOLUTION", AsciiVideoEditor.MAIN_WINDOW_NAME),
+                ),
+                cv2.getTrackbarPos(
+                    "DEPTH ATTENUATION", AsciiVideoEditor.MAIN_WINDOW_NAME
+                )
+                / 100.0,
+                max(
+                    0.01,
+                    cv2.getTrackbarPos("GAMMA", AsciiVideoEditor.MAIN_WINDOW_NAME)
+                    / 100.0,
+                ),
+                max(
+                    5,
+                    cv2.getTrackbarPos(
+                        "BRIGHTNESS FLOOR", AsciiVideoEditor.MAIN_WINDOW_NAME
+                    ),
+                ),
+                max(
+                    0.01,
+                    cv2.getTrackbarPos(
+                        "PALETTE THRESHOLD", AsciiVideoEditor.MAIN_WINDOW_NAME
+                    )
+                    / 100.0,
+                ),
+                AsciiVideoEditor.DARK_CHARS,
+                AsciiVideoEditor.BRIGHT_CHARS,
+            )
+        )
+        # 1.2 Calculate Density Mask (Stochastic Sampling)
+
+        # Convert final_brightness_grid [0-255] to density probability [0.0-1.0]
+        # Low brightness (background) means low density probability.
+        density_probability_grid = final_brightness_grid / 255.0
+
+        # Apply Stochastic Sampling (similar to the Pointillism mask):
+        random_grid = np.random.rand(*density_probability_grid.shape)
+        density_mask = (density_probability_grid > random_grid).astype(np.uint8)
+
+        ascii_frame = AsciiEffect.create_ascii_frame_with_density(
+            ascii_index_grid,
+            density_mask,
+            frame,
+            AsciiVideoEditor.ASCII_MASTER_CHARS,
+        )
+
+        # --- FIX: RESIZE FINAL_FRAME TO MATCH INPUT FRAME HEIGHT ---
+        target_height = frame.shape[0]
+
+        # Calculate the new width while preserving aspect ratio
+        current_width = ascii_frame.shape[1]
+        current_height = ascii_frame.shape[0]
+
+        # We must resize to ensure the height is exactly target_height
+        target_width = int(current_width * target_height / current_height)
+
+        final_ascii_frame = cv2.resize(
+            ascii_frame,
+            (target_width, target_height),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        return final_ascii_frame
+        pass
+
+    def run_display(self):
+        # Initialize camera input
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            print("Error: Could not open camera.")
+            return
+        depth_filter = DepthFilter(model_type="DPT_Large")
+        print("Starting MiDaS processing. Initial frames will be slow (CPU mode).")
+
+        self.setup_trackbars()
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -139,90 +225,14 @@ class AsciiVideoEditor:
 
             # Flip the frame
             frame = cv2.flip(frame, 1)
-
-            W_DOTS = max(40, cv2.getTrackbarPos("RESOLUTION", MAIN_WINDOW_NAME))
-            ATTENUATION_STRENGTH = (
-                cv2.getTrackbarPos("DEPTH ATTENUATION", MAIN_WINDOW_NAME) / 100.0
-            )
-            GAMMA = max(0.01, cv2.getTrackbarPos("GAMMA", MAIN_WINDOW_NAME) / 100.0)
-            PALETTE_THRESHOLD = max(
-                0.01,
-                cv2.getTrackbarPos("PALETTE THRESHOLD", MAIN_WINDOW_NAME) / 100.0,
-            )
-            BRIGHTNESS_FLOOR = max(
-                5, cv2.getTrackbarPos("BRIGHTNESS FLOOR", MAIN_WINDOW_NAME)
-            )
-
             normalized_depth = depth_filter.get_normalized_depth_map(frame)
-
-            # --- NEW CODE BLOCK ---
-            # 1. Convert Frame and Depth to Dot Mask (Pointillism - unchanged)
-
-            # ascii_index_grid holds WHICH character to use.
-            # final_brightness_grid holds the final 0-255 brightness value.
-            ascii_index_grid, final_brightness_grid = (
-                AsciiEffect.calculate_ascii_index_and_brightness(
-                    frame,
-                    normalized_depth,
-                    W_DOTS,
-                    ATTENUATION_STRENGTH,
-                    GAMMA,
-                    BRIGHTNESS_FLOOR,
-                    PALETTE_THRESHOLD,
-                    AsciiVideoEditor.DARK_CHARS,
-                    AsciiVideoEditor.BRIGHT_CHARS,
-                )
-            )
-
-            # 1.2 Calculate Density Mask (Stochastic Sampling)
-
-            # Convert final_brightness_grid [0-255] to density probability [0.0-1.0]
-            # Low brightness (background) means low density probability.
-            density_probability_grid = final_brightness_grid / 255.0
-
-            # Apply Stochastic Sampling (similar to the Pointillism mask):
-            random_grid = np.random.rand(*density_probability_grid.shape)
-            density_mask = (density_probability_grid > random_grid).astype(np.uint8)
-
-            # Convert the normalized depth map [0, 1] back to a visual 8-bit image [0, 255]
-            # Since we INVERTED the depth map (0=Closest, 1=Farthest),
-            # the display image will show: Black (0) = Closest, White (255) = Farthest.
-            depth_display = (normalized_depth * 255).astype(np.uint8)
-
-            # Convert the grayscale depth map to a 3-channel BGR image for stacking
-            depth_display = cv2.cvtColor(depth_display, cv2.COLOR_GRAY2BGR)
-
-            # --- NEW CODE BLOCK ---
-            # 1. Convert Frame and Depth to Dot Mask
-
-            # 2. Render Dot Mask to the Final Frame
-            ascii_frame = AsciiEffect.create_ascii_frame_with_density(
-                ascii_index_grid,
-                density_mask,
-                frame,
-                AsciiVideoEditor.ASCII_MASTER_CHARS,
-            )
-
-            # --- FIX: RESIZE FINAL_FRAME TO MATCH INPUT FRAME HEIGHT ---
-            target_height = frame.shape[0]
-
-            # Calculate the new width while preserving aspect ratio
-            current_width = ascii_frame.shape[1]
-            current_height = ascii_frame.shape[0]
-
-            # We must resize to ensure the height is exactly target_height
-            target_width = int(current_width * target_height / current_height)
-
-            final_ascii_frame = cv2.resize(
-                ascii_frame,
-                (target_width, target_height),
-                interpolation=cv2.INTER_NEAREST,
-            )
+            depth_frame = self.process_depth_frame(frame, normalized_depth)
+            ascii_frame = self.process_ascii_frame(frame, normalized_depth)
 
             # 3. Display the final result
 
-            top_row = np.hstack((frame, depth_display))
-            bottom_row = np.hstack((final_ascii_frame, final_ascii_frame))
+            top_row = np.hstack((frame, depth_frame))
+            bottom_row = np.hstack((ascii_frame, ascii_frame))
 
             output_display = np.vstack((top_row, bottom_row))
             cv2.imshow(
@@ -236,17 +246,22 @@ class AsciiVideoEditor:
             elif key == ord("s"):
                 settings_to_save = {
                     "W_DOTS": max(
-                        40, cv2.getTrackbarPos("RESOLUTION", MAIN_WINDOW_NAME)
+                        40,
+                        cv2.getTrackbarPos(
+                            "RESOLUTION", AsciiVideoEditor.MAIN_WINDOW_NAME
+                        ),
                     ),
                     "ATTENUATION_STRENGTH": cv2.getTrackbarPos(
-                        "DEPTH ATTENUATION", MAIN_WINDOW_NAME
+                        "DEPTH ATTENUATION", AsciiVideoEditor.MAIN_WINDOW_NAME
                     ),
-                    "GAMMA": cv2.getTrackbarPos("GAMMA", MAIN_WINDOW_NAME),
+                    "GAMMA": cv2.getTrackbarPos(
+                        "GAMMA", AsciiVideoEditor.MAIN_WINDOW_NAME
+                    ),
                     "PALETTE_THRESHOLD": cv2.getTrackbarPos(
-                        "PALETTE THRESHOLD", MAIN_WINDOW_NAME
+                        "PALETTE THRESHOLD", AsciiVideoEditor.MAIN_WINDOW_NAME
                     ),
                     "BRIGHTNESS_FLOOR": cv2.getTrackbarPos(
-                        "BRIGHTNESS FLOOR", MAIN_WINDOW_NAME
+                        "BRIGHTNESS FLOOR", AsciiVideoEditor.MAIN_WINDOW_NAME
                     ),
                 }
                 self.save_settings(settings_to_save)
