@@ -1,0 +1,16 @@
+{
+    "DEFAULT": {
+        "W_DOTS": 160,
+        "ATTENUATION_STRENGTH": 70,
+        "GAMMA": 90,
+        "PALETTE_THRESHOLD": 50,
+        "BRIGHTNESS_FLOOR": 5
+    },
+    "SAVED": {
+        "W_DOTS": 160,
+        "ATTENUATION_STRENGTH": 30,
+        "GAMMA": 186,
+        "PALETTE_THRESHOLD": 50,
+        "BRIGHTNESS_FLOOR": 38
+    }
+}
