@@ -3,6 +3,7 @@ import numpy as np
 from depth_module.depth_filter import DepthFilter
 from ascii_effect.ascii_effect import AsciiEffect
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 import json
 
@@ -18,8 +19,13 @@ class FilterSettings:
 class AsciiVideoEditor:
 
     SETTINGS_FILE_PATH = "settings/settings.json"
+    INPUT_VIDEOS_FILE_PATH = "input_videos"
+    OUTPUT_VIDEOS_FILE_PATH = "output_videos"
+
+    MAX_DISPLAY_HEIGHT = 320
     MAIN_WINDOW_NAME = "ASCII Depth Filter | Press Q to Quit"
     MODEL_TYPE = "DPT_Large"
+
     BRIGHT_CHARS = list("0Zwpbho#W8B")
     DARK_CHARS = list('.`":I!>~_?')
     ASCII_MASTER_CHARS = DARK_CHARS + BRIGHT_CHARS
@@ -30,6 +36,7 @@ class AsciiVideoEditor:
         else:
             self.settings = self.load_default_settings()
         self.depth_filter = DepthFilter(AsciiVideoEditor.MODEL_TYPE)
+        self.first_frame_processed = False
         print("Starting MiDaS processor.")
 
     def load_default_settings(self) -> FilterSettings:
@@ -234,6 +241,35 @@ class AsciiVideoEditor:
         return final_ascii_frame
         pass
 
+
+    def create_display_output(self, original_frame, depth_frame, ascii_frame):
+        h_orig, w_orig = original_frame.shape[:2]
+
+        scale_factor = AsciiVideoEditor.MAX_DISPLAY_HEIGHT / h_orig
+        target_height = AsciiVideoEditor.MAX_DISPLAY_HEIGHT
+        target_width = int(w_orig * scale_factor)
+
+        # 1. Resize the Original Frame
+        display_original = cv2.resize(original_frame, (target_width, target_height))
+        
+        # 2. Resize the Depth Map
+        display_depth = cv2.resize(depth_frame, (target_width, target_height))
+        
+        # 3. Resize the ASCII Frame
+        # To maintain consistency, we force the ASCII frame to match the calculated target size.
+        display_ascii = cv2.resize(
+            ascii_frame, 
+            (target_width, target_height), 
+            interpolation=cv2.INTER_NEAREST
+        )
+
+        # 4. Stack the frames in the 2x2 layout: (Original, Depth) over (ASCII, ASCII)
+        top_row = np.hstack((display_original, display_depth))
+        bottom_row = np.hstack((display_ascii, display_ascii))
+        
+        output_display = np.vstack((top_row, bottom_row))
+        return output_display  
+    
     def run_live_camera_display(self):
         # Initialize camera input
         cap = cv2.VideoCapture(0)
@@ -253,15 +289,20 @@ class AsciiVideoEditor:
             normalized_depth = self.depth_filter.get_normalized_depth_map(frame)
             depth_frame = self.process_depth_frame(frame, normalized_depth)
             ascii_frame = self.process_ascii_frame(frame, normalized_depth)
+            
+            output_display = self.create_display_output(frame, depth_frame, ascii_frame)
 
-            # 3. Display the final result
+            if not self.first_frame_processed:
+                display_height, display_width = output_display.shape[:2]
+                cv2.resizeWindow(
+                    AsciiVideoEditor.MAIN_WINDOW_NAME, 
+                    display_width, 
+                    display_height + 80 # Add space for trackbars
+                )
+                self.first_frame_processed = True
 
-            top_row = np.hstack((frame, depth_frame))
-            bottom_row = np.hstack((ascii_frame, ascii_frame))
-
-            output_display = np.vstack((top_row, bottom_row))
             cv2.imshow(
-                "Depth-Filtered Pointillism (GPU) | Press Q to Quit", output_display
+                AsciiVideoEditor.MAIN_WINDOW_NAME, output_display
             )
 
             key = cv2.waitKey(1) & 0xFF
@@ -273,9 +314,74 @@ class AsciiVideoEditor:
 
         cap.release()
         cv2.destroyAllWindows()
-        print("Depth processing stopped.")
+
+    def run_live_preview(self, file_path: str):
+        full_file_path = AsciiVideoEditor.INPUT_VIDEOS_FILE_PATH + "/" + file_path
+        cap = cv2.VideoCapture(full_file_path)
+        if not cap.isOpened():
+            raise Exception(f"Could not open video file: {file_path}")
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        wait_ms = int(1000 / fps) if fps > 0 else 1
+        self.setup_trackbars()
+
+        is_paused = False
+        ret, current_frame = cap.read() # Get first frame
+        
+        if not ret:
+            print("Error: Input video is empty.")
+            cap.release()
+            return False
+        
+        while cap.isOpened():
+            key = cv2.waitKey(1 if is_paused else wait_ms) & 0xFF
+
+            if key == ord("q"):
+                break
+            elif key == ord("s"):
+                self.save_settings()
+            elif key == ord("p"):
+                is_paused = not is_paused
+            
+            if not is_paused:
+                ret, next_frame = cap.read()
+                if not ret:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ret_new, next_frame = cap.read()
+            
+            current_frame = next_frame
+            normalized_depth = self.depth_filter.get_normalized_depth_map(current_frame)
+            depth_frame = self.process_depth_frame(current_frame, normalized_depth)
+            ascii_frame = self.process_ascii_frame(current_frame, normalized_depth)
+
+            output_display = self.create_display_output(current_frame, depth_frame, ascii_frame)
+
+            if not self.first_frame_processed:
+                display_height, display_width = output_display.shape[:2]
+                cv2.resizeWindow(
+                    AsciiVideoEditor.MAIN_WINDOW_NAME, 
+                    display_width, 
+                    display_height + 80 # Add space for trackbars
+                )
+                self.first_frame_processed = True
+            
+            cv2.imshow(AsciiVideoEditor.MAIN_WINDOW_NAME, output_display)
+
+        cap.release() 
+        cv2.destroyAllWindows()
+    
+    def assert_video_exists(self, file_path: str) -> bool:
+        return Path(AsciiVideoEditor.INPUT_VIDEOS_FILE_PATH + "/" + file_path).exists()
 
 
 if __name__ == "__main__":
     video_editor = AsciiVideoEditor()
-    video_editor.run_live_camera_display()
+    mode = input("Enter 1 to enter live camera display mode, or Enter 2 to enter video editing mode: ")
+    while mode not in ["1", "2"]:
+        mode = input("Enter 1 to enter live camera display mode, or Enter 2 to enter video editing mode: ")
+    if mode == "1":
+        video_editor.run_live_camera_display()
+    else:
+        file_path = input("Copy in the file name for the video you want to edit. Ensure that the video is placed inside of the input_videos folder: ")
+        while video_editor.assert_video_exists(file_path) is False:
+            file_path = input("Failed to load file correctly. Please enter the file name again, or recheck the folder: ")
+        video_editor.run_live_preview(file_path)
