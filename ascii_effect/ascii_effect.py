@@ -21,10 +21,10 @@ class AsciiEffect:
         H_DOTS = int(h * W_DOTS / w)
 
         small_gray_frame = cv2.resize(
-            gray_frame, (W_DOTS, H_DOTS), interpolation=cv2.INTER_LINEAR
+            gray_frame, (W_DOTS, H_DOTS), interpolation=cv2.INTER_NEAREST
         )
         small_depth_map = cv2.resize(
-            normalized_depth, (W_DOTS, H_DOTS), interpolation=cv2.INTER_LINEAR
+            normalized_depth, (W_DOTS, H_DOTS), interpolation=cv2.INTER_NEAREST
         )
 
         # 2. Apply Depth Attenuation: B_eff = B * (1 - D_norm * Strength)

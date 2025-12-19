@@ -161,7 +161,7 @@ class AsciiVideoEditor:
             lambda x: None,
         )
 
-    def process_depth_frame(self, frame, normalized_depth):
+    def process_depth_frame(self, normalized_depth):
         # Convert the normalized depth map [0, 1] back to a visual 8-bit image [0, 255]
         # Since we INVERTED the depth map (0=Closest, 1=Farthest),
         # the display image will show: Black (0) = Closest, White (255) = Farthest.
@@ -287,7 +287,7 @@ class AsciiVideoEditor:
             # Flip the frame
             frame = cv2.flip(frame, 1)
             normalized_depth = self.depth_filter.get_normalized_depth_map(frame)
-            depth_frame = self.process_depth_frame(frame, normalized_depth)
+            depth_frame = self.process_depth_frame(normalized_depth)
             ascii_frame = self.process_ascii_frame(frame, normalized_depth)
             
             output_display = self.create_display_output(frame, depth_frame, ascii_frame)
@@ -341,6 +341,11 @@ class AsciiVideoEditor:
                 self.save_settings()
             elif key == ord("p"):
                 is_paused = not is_paused
+            elif key == ord("e"):
+                print("Exporting video...")
+                self.batch_process_video(file_path)
+                print("Exporting video done! Killing the process now.")
+                break
             
             if not is_paused:
                 ret, next_frame = cap.read()
@@ -350,7 +355,7 @@ class AsciiVideoEditor:
             
             current_frame = next_frame
             normalized_depth = self.depth_filter.get_normalized_depth_map(current_frame)
-            depth_frame = self.process_depth_frame(current_frame, normalized_depth)
+            depth_frame = self.process_depth_frame(normalized_depth)
             ascii_frame = self.process_ascii_frame(current_frame, normalized_depth)
 
             output_display = self.create_display_output(current_frame, depth_frame, ascii_frame)
@@ -368,7 +373,73 @@ class AsciiVideoEditor:
 
         cap.release() 
         cv2.destroyAllWindows()
+
+    def batch_process_video(self, file_path: str) -> bool:
+
+        input_video_path = Path(AsciiVideoEditor.INPUT_VIDEOS_FILE_PATH) / file_path
+        
+        # 2. Generate Output Path: Ensure the output filename is unique and includes the directory.
+        # a) Remove the extension from the input filename (e.g., "clip.mp4" -> "clip")
+        base_name = Path(file_path).stem
+        # b) Construct the final output path string
+        output_file_name = f"{base_name}_edited.mp4"
+        output_video_path = Path(AsciiVideoEditor.OUTPUT_VIDEOS_FILE_PATH) / output_file_name
+        
+        # CRITICAL FIX 1: Ensure the output directory exists
+        output_video_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # 3. Setup Video Reader (Capture)
+        # Convert Path object to string for cv2.VideoCapture compatibility
+        cap = cv2.VideoCapture(str(input_video_path))
+
+        if not cap.isOpened():
+            raise Exception(f"Could not open video file: {file_path}")
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        input_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        input_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        frame_size = (input_width, input_height)
+
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        output_path_str = str(output_video_path.resolve())
+        out = cv2.VideoWriter(str(output_path_str), fourcc, fps, frame_size)
+
+        if not out.isOpened():
+            print(f"FATAL: Could not open VideoWriter. Check codec support on your system.")
+            cap.release()
+            return False
+        
+        frame_count = 0
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            normalized_depth = self.depth_filter.get_normalized_depth_map(frame)
+            final_ascii_frame = self.process_ascii_frame(frame, normalized_depth)
+            
+            # Case A: Padding (if final_ascii_frame is too narrow)
+            if final_ascii_frame.shape[1] < input_width:
+                padding_width = input_width - final_ascii_frame.shape[1]
+                padding = np.zeros((input_height, padding_width, 3), dtype=np.uint8)
+                final_ascii_frame = np.hstack((final_ascii_frame, padding))
+                
+            # Case B: Cropping (if final_ascii_frame is too wide—less common)
+            elif final_ascii_frame.shape[1] > input_width:
+                final_ascii_frame = final_ascii_frame[:, :input_width]
+            
+            # 5. Write Frame
+            out.write(final_ascii_frame)
+            
+            frame_count += 1
+            if frame_count % 300 == 0:
+                progress = (frame_count / total_frames) * 100
+                print(f"   Processed {frame_count} / {total_frames} frames ({progress:.1f}%)")             
     
+        cap.release()
+        out.release()
+        cv2.destroyAllWindows()
+        return True
+
     def assert_video_exists(self, file_path: str) -> bool:
         return Path(AsciiVideoEditor.INPUT_VIDEOS_FILE_PATH + "/" + file_path).exists()
 
@@ -381,7 +452,12 @@ if __name__ == "__main__":
     if mode == "1":
         video_editor.run_live_camera_display()
     else:
-        file_path = input("Copy in the file name for the video you want to edit. Ensure that the video is placed inside of the input_videos folder: ")
-        while video_editor.assert_video_exists(file_path) is False:
-            file_path = input("Failed to load file correctly. Please enter the file name again, or recheck the folder: ")
-        video_editor.run_live_preview(file_path)
+        while True:
+            file_path = input("Copy in the file name for the video you want to edit. Ensure that the video is placed inside of the input_videos folder: ")
+            while video_editor.assert_video_exists(file_path) is False:
+                file_path = input("Failed to load file correctly. Please enter the file name again, or recheck the folder: ")
+            video_editor.run_live_preview(file_path)
+            answer = input("Do you want to edit another video? Y/N: ")
+            if "N" in answer:
+                break
+
