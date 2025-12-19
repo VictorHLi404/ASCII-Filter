@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 import json
 
+
 @dataclass
 class FilterSettings:
     W_DOTS: int
@@ -93,16 +94,12 @@ class AsciiVideoEditor:
         settings_to_save = {
             "W_DOTS": max(
                 40,
-                cv2.getTrackbarPos(
-                    "RESOLUTION", AsciiVideoEditor.MAIN_WINDOW_NAME
-                ),
+                cv2.getTrackbarPos("RESOLUTION", AsciiVideoEditor.MAIN_WINDOW_NAME),
             ),
             "ATTENUATION_STRENGTH": cv2.getTrackbarPos(
                 "DEPTH ATTENUATION", AsciiVideoEditor.MAIN_WINDOW_NAME
             ),
-            "GAMMA": cv2.getTrackbarPos(
-                "GAMMA", AsciiVideoEditor.MAIN_WINDOW_NAME
-            ),
+            "GAMMA": cv2.getTrackbarPos("GAMMA", AsciiVideoEditor.MAIN_WINDOW_NAME),
             "PALETTE_THRESHOLD": cv2.getTrackbarPos(
                 "PALETTE THRESHOLD", AsciiVideoEditor.MAIN_WINDOW_NAME
             ),
@@ -239,8 +236,6 @@ class AsciiVideoEditor:
             interpolation=cv2.INTER_NEAREST,
         )
         return final_ascii_frame
-        pass
-
 
     def create_display_output(self, original_frame, depth_frame, ascii_frame):
         h_orig, w_orig = original_frame.shape[:2]
@@ -251,25 +246,23 @@ class AsciiVideoEditor:
 
         # 1. Resize the Original Frame
         display_original = cv2.resize(original_frame, (target_width, target_height))
-        
+
         # 2. Resize the Depth Map
         display_depth = cv2.resize(depth_frame, (target_width, target_height))
-        
+
         # 3. Resize the ASCII Frame
         # To maintain consistency, we force the ASCII frame to match the calculated target size.
         display_ascii = cv2.resize(
-            ascii_frame, 
-            (target_width, target_height), 
-            interpolation=cv2.INTER_NEAREST
+            ascii_frame, (target_width, target_height), interpolation=cv2.INTER_NEAREST
         )
 
         # 4. Stack the frames in the 2x2 layout: (Original, Depth) over (ASCII, ASCII)
         top_row = np.hstack((display_original, display_depth))
         bottom_row = np.hstack((display_ascii, display_ascii))
-        
+
         output_display = np.vstack((top_row, bottom_row))
-        return output_display  
-    
+        return output_display
+
     def run_live_camera_display(self):
         # Initialize camera input
         cap = cv2.VideoCapture(0)
@@ -289,21 +282,19 @@ class AsciiVideoEditor:
             normalized_depth = self.depth_filter.get_normalized_depth_map(frame)
             depth_frame = self.process_depth_frame(normalized_depth)
             ascii_frame = self.process_ascii_frame(frame, normalized_depth)
-            
+
             output_display = self.create_display_output(frame, depth_frame, ascii_frame)
 
             if not self.first_frame_processed:
                 display_height, display_width = output_display.shape[:2]
                 cv2.resizeWindow(
-                    AsciiVideoEditor.MAIN_WINDOW_NAME, 
-                    display_width, 
-                    display_height + 80 # Add space for trackbars
+                    AsciiVideoEditor.MAIN_WINDOW_NAME,
+                    display_width,
+                    display_height + 80,  # Add space for trackbars
                 )
                 self.first_frame_processed = True
 
-            cv2.imshow(
-                AsciiVideoEditor.MAIN_WINDOW_NAME, output_display
-            )
+            cv2.imshow(AsciiVideoEditor.MAIN_WINDOW_NAME, output_display)
 
             key = cv2.waitKey(1) & 0xFF
 
@@ -325,13 +316,13 @@ class AsciiVideoEditor:
         self.setup_trackbars()
 
         is_paused = False
-        ret, current_frame = cap.read() # Get first frame
-        
+        ret, current_frame = cap.read()  # Get first frame
+
         if not ret:
             print("Error: Input video is empty.")
             cap.release()
             return False
-        
+
         while cap.isOpened():
             key = cv2.waitKey(1 if is_paused else wait_ms) & 0xFF
 
@@ -346,48 +337,52 @@ class AsciiVideoEditor:
                 self.batch_process_video(file_path)
                 print("Exporting video done! Killing the process now.")
                 break
-            
+
             if not is_paused:
                 ret, next_frame = cap.read()
                 if not ret:
                     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     ret_new, next_frame = cap.read()
-            
+
             current_frame = next_frame
             normalized_depth = self.depth_filter.get_normalized_depth_map(current_frame)
             depth_frame = self.process_depth_frame(normalized_depth)
             ascii_frame = self.process_ascii_frame(current_frame, normalized_depth)
 
-            output_display = self.create_display_output(current_frame, depth_frame, ascii_frame)
+            output_display = self.create_display_output(
+                current_frame, depth_frame, ascii_frame
+            )
 
             if not self.first_frame_processed:
                 display_height, display_width = output_display.shape[:2]
                 cv2.resizeWindow(
-                    AsciiVideoEditor.MAIN_WINDOW_NAME, 
-                    display_width, 
-                    display_height + 80 # Add space for trackbars
+                    AsciiVideoEditor.MAIN_WINDOW_NAME,
+                    display_width,
+                    display_height + 80,  # Add space for trackbars
                 )
                 self.first_frame_processed = True
-            
+
             cv2.imshow(AsciiVideoEditor.MAIN_WINDOW_NAME, output_display)
 
-        cap.release() 
+        cap.release()
         cv2.destroyAllWindows()
 
     def batch_process_video(self, file_path: str) -> bool:
 
         input_video_path = Path(AsciiVideoEditor.INPUT_VIDEOS_FILE_PATH) / file_path
-        
+
         # 2. Generate Output Path: Ensure the output filename is unique and includes the directory.
         # a) Remove the extension from the input filename (e.g., "clip.mp4" -> "clip")
         base_name = Path(file_path).stem
         # b) Construct the final output path string
         output_file_name = f"{base_name}_edited.mp4"
-        output_video_path = Path(AsciiVideoEditor.OUTPUT_VIDEOS_FILE_PATH) / output_file_name
-        
+        output_video_path = (
+            Path(AsciiVideoEditor.OUTPUT_VIDEOS_FILE_PATH) / output_file_name
+        )
+
         # CRITICAL FIX 1: Ensure the output directory exists
         output_video_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # 3. Setup Video Reader (Capture)
         # Convert Path object to string for cv2.VideoCapture compatibility
         cap = cv2.VideoCapture(str(input_video_path))
@@ -400,15 +395,17 @@ class AsciiVideoEditor:
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         frame_size = (input_width, input_height)
 
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         output_path_str = str(output_video_path.resolve())
         out = cv2.VideoWriter(str(output_path_str), fourcc, fps, frame_size)
 
         if not out.isOpened():
-            print(f"FATAL: Could not open VideoWriter. Check codec support on your system.")
+            print(
+                f"FATAL: Could not open VideoWriter. Check codec support on your system."
+            )
             cap.release()
             return False
-        
+
         frame_count = 0
         while cap.isOpened():
             ret, frame = cap.read()
@@ -416,25 +413,27 @@ class AsciiVideoEditor:
                 break
             normalized_depth = self.depth_filter.get_normalized_depth_map(frame)
             final_ascii_frame = self.process_ascii_frame(frame, normalized_depth)
-            
+
             # Case A: Padding (if final_ascii_frame is too narrow)
             if final_ascii_frame.shape[1] < input_width:
                 padding_width = input_width - final_ascii_frame.shape[1]
                 padding = np.zeros((input_height, padding_width, 3), dtype=np.uint8)
                 final_ascii_frame = np.hstack((final_ascii_frame, padding))
-                
+
             # Case B: Cropping (if final_ascii_frame is too wide—less common)
             elif final_ascii_frame.shape[1] > input_width:
                 final_ascii_frame = final_ascii_frame[:, :input_width]
-            
+
             # 5. Write Frame
             out.write(final_ascii_frame)
-            
+
             frame_count += 1
             if frame_count % 300 == 0:
                 progress = (frame_count / total_frames) * 100
-                print(f"   Processed {frame_count} / {total_frames} frames ({progress:.1f}%)")             
-    
+                print(
+                    f"   Processed {frame_count} / {total_frames} frames ({progress:.1f}%)"
+                )
+
         cap.release()
         out.release()
         cv2.destroyAllWindows()
@@ -446,18 +445,25 @@ class AsciiVideoEditor:
 
 if __name__ == "__main__":
     video_editor = AsciiVideoEditor()
-    mode = input("Enter 1 to enter live camera display mode, or Enter 2 to enter video editing mode: ")
+    mode = input(
+        "Enter 1 to enter live camera display mode, or Enter 2 to enter video editing mode: "
+    )
     while mode not in ["1", "2"]:
-        mode = input("Enter 1 to enter live camera display mode, or Enter 2 to enter video editing mode: ")
+        mode = input(
+            "Enter 1 to enter live camera display mode, or Enter 2 to enter video editing mode: "
+        )
     if mode == "1":
         video_editor.run_live_camera_display()
     else:
         while True:
-            file_path = input("Copy in the file name for the video you want to edit. Ensure that the video is placed inside of the input_videos folder: ")
+            file_path = input(
+                "Copy in the file name for the video you want to edit. Ensure that the video is placed inside of the input_videos folder: "
+            )
             while video_editor.assert_video_exists(file_path) is False:
-                file_path = input("Failed to load file correctly. Please enter the file name again, or recheck the folder: ")
+                file_path = input(
+                    "Failed to load file correctly. Please enter the file name again, or recheck the folder: "
+                )
             video_editor.run_live_preview(file_path)
             answer = input("Do you want to edit another video? Y/N: ")
             if "N" in answer:
                 break
-
