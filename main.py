@@ -17,6 +17,13 @@ class FilterSettings:
     BRIGHTNESS_FLOOR: int
 
 
+@dataclass
+class AsciiSettings:
+    DARK_CHARS: list[str]
+    BRIGHT_CHARS: list[str]
+    DARK_COLOR: list[int]
+    BRIGHT_COLOR: list[int]
+
 class AsciiVideoEditor:
 
     SETTINGS_FILE_PATH = "settings/settings.json"
@@ -27,18 +34,14 @@ class AsciiVideoEditor:
     MAIN_WINDOW_NAME = "ASCII Depth Filter | Press Q to Quit"
     MODEL_TYPE = "DPT_Large"
 
-    BRIGHT_CHARS = list("0Zwpbho#W8B")
-    DARK_CHARS = list('.`":I!>~_?')
-    ASCII_MASTER_CHARS = DARK_CHARS + BRIGHT_CHARS
-
     def __init__(self):
         if self.load_saved_settings_from_file() is not None:
-            self.settings = self.load_saved_settings_from_file()
+            self.adjustable_settings = self.load_saved_settings_from_file()
         else:
-            self.settings = self.load_default_settings()
+            self.adjustable_settings = self.load_default_settings()
+        self.fixed_settings = self.load_fixed_settings()
         self.depth_filter = DepthFilter(AsciiVideoEditor.MODEL_TYPE)
         self.first_frame_processed = False
-        print("Starting MiDaS processor.")
 
     def load_default_settings(self) -> FilterSettings:
         try:
@@ -55,6 +58,21 @@ class AsciiVideoEditor:
                 return filter_settings
         except:
             raise Exception("Failed to successfully parse default settings.")
+    
+    def load_fixed_settings(self) -> AsciiSettings:
+        try:
+            with open(AsciiVideoEditor.SETTINGS_FILE_PATH, "r") as file:
+                json_settings = json.load(file)
+                fixed_settings = json_settings["FIXED"]
+                ascii_settings = AsciiSettings(
+                    DARK_CHARS=fixed_settings["DARK_CHARS"],
+                    BRIGHT_CHARS=fixed_settings["BRIGHT_CHARS"],
+                    DARK_COLOR=fixed_settings["DARK_COLOR"],
+                    BRIGHT_COLOR=fixed_settings["BRIGHT_COLOR"]
+                )
+                return ascii_settings
+        except:
+            raise Exception("Failed to sucessfully parse fixed settings.")
 
     def load_saved_settings_from_file(self) -> Optional[FilterSettings]:
         try:
@@ -116,7 +134,7 @@ class AsciiVideoEditor:
         cv2.createTrackbar(
             "RESOLUTION",
             AsciiVideoEditor.MAIN_WINDOW_NAME,
-            self.settings.W_DOTS,
+            self.adjustable_settings.W_DOTS,
             300,
             lambda x: None,
         )
@@ -125,7 +143,7 @@ class AsciiVideoEditor:
         cv2.createTrackbar(
             "DEPTH ATTENUATION",
             AsciiVideoEditor.MAIN_WINDOW_NAME,  # Use the main window name
-            self.settings.ATTENUATION_STRENGTH,
+            self.adjustable_settings.ATTENUATION_STRENGTH,
             100,
             lambda x: None,
         )
@@ -135,7 +153,7 @@ class AsciiVideoEditor:
         cv2.createTrackbar(
             "GAMMA",
             AsciiVideoEditor.MAIN_WINDOW_NAME,  # Use the main window name
-            self.settings.GAMMA,
+            self.adjustable_settings.GAMMA,
             300,
             lambda x: None,
         )
@@ -144,7 +162,7 @@ class AsciiVideoEditor:
         cv2.createTrackbar(
             "PALETTE THRESHOLD",
             AsciiVideoEditor.MAIN_WINDOW_NAME,
-            self.settings.PALETTE_THRESHOLD,
+            self.adjustable_settings.PALETTE_THRESHOLD,
             100,
             lambda x: None,
         )
@@ -153,7 +171,7 @@ class AsciiVideoEditor:
         cv2.createTrackbar(
             "BRIGHTNESS FLOOR",
             AsciiVideoEditor.MAIN_WINDOW_NAME,
-            self.settings.BRIGHTNESS_FLOOR,
+            self.adjustable_settings.BRIGHTNESS_FLOOR,
             255,
             lambda x: None,
         )
@@ -199,8 +217,7 @@ class AsciiVideoEditor:
                     )
                     / 100.0,
                 ),
-                AsciiVideoEditor.DARK_CHARS,
-                AsciiVideoEditor.BRIGHT_CHARS,
+                self.fixed_settings
             )
         )
         # 1.2 Calculate Density Mask (Stochastic Sampling)
@@ -217,7 +234,7 @@ class AsciiVideoEditor:
             ascii_index_grid,
             density_mask,
             frame,
-            AsciiVideoEditor.ASCII_MASTER_CHARS,
+            self.fixed_settings
         )
 
         # --- FIX: RESIZE FINAL_FRAME TO MATCH INPUT FRAME HEIGHT ---

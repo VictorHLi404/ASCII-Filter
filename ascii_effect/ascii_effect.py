@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
 
-
 class AsciiEffect:
 
     @staticmethod
@@ -13,8 +12,7 @@ class AsciiEffect:
         GAMMA,
         MIN_BRIGHTNESS_FLOOR,
         PALETTE_THRESHOLD,
-        DARK_CHARS,
-        BRIGHT_CHARS,
+        ASCII_SETTINGS,
     ):
         gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         h, w = gray_frame.shape
@@ -53,7 +51,7 @@ class AsciiEffect:
         if np.any(dark_mask):
             dark_values = final_normalized[dark_mask]
             remapped_dark_values = dark_values / PALETTE_THRESHOLD
-            num_dark_chars = len(DARK_CHARS)
+            num_dark_chars = len(ASCII_SETTINGS.DARK_CHARS)
             dark_indices = (remapped_dark_values * num_dark_chars).astype(np.uint8)
             dark_indices = np.clip(dark_indices, 0, num_dark_chars - 1)
             ascii_index_grid[dark_mask] = dark_indices
@@ -64,12 +62,12 @@ class AsciiEffect:
             bright_values = final_normalized[bright_mask]
             range_size = 1.0 - PALETTE_THRESHOLD
             remapped_bright_values = (bright_values - PALETTE_THRESHOLD) / range_size
-            num_bright_chars = len(BRIGHT_CHARS)
+            num_bright_chars = len(ASCII_SETTINGS.BRIGHT_CHARS)
             bright_indices = (remapped_bright_values * num_bright_chars).astype(
                 np.uint8
             )
             bright_indices = np.clip(bright_indices, 0, num_bright_chars - 1)
-            offset = len(DARK_CHARS)
+            offset = len(ASCII_SETTINGS.DARK_CHARS)
             ascii_index_grid[bright_mask] = bright_indices + offset
 
         # CHANGE: Return both index grid and the final 0-255 brightness grid
@@ -77,8 +75,11 @@ class AsciiEffect:
 
     @staticmethod
     def create_ascii_frame_with_density(
-        brightness_indices, density_mask, original_frame, ASCII_MASTER_CHARS
+        brightness_indices, density_mask, original_frame, ascii_settings
     ):
+        
+        color_breakpoint = len(ascii_settings.DARK_CHARS)
+        charset = ascii_settings.DARK_CHARS + ascii_settings.BRIGHT_CHARS
         H_DOTS, W_DOTS_actual = brightness_indices.shape
 
         target_h = original_frame.shape[0]
@@ -110,10 +111,7 @@ class AsciiEffect:
 
         output_frame = np.zeros((target_h, target_w, 3), dtype=np.uint8)
 
-        # The space character is what we draw when the density mask is 0.
         # We must assume the space is NOT in ASCII_MASTER_CHARS to get a true black hole.
-        # If you want a subtle texture, set SPACE_CHAR to a period ('.').
-        # For a true sparse background, we'll draw nothing (no cv2.putText call).
 
         # --- Loop through the index grid and draw the corresponding character ---
         for i in range(H_DOTS):
@@ -126,8 +124,14 @@ class AsciiEffect:
                     # 1. Get the ASCII character
                     index = brightness_indices[i, j]
                     # Ensure index is within the master list bounds
-                    index = np.clip(index, 0, len(ASCII_MASTER_CHARS) - 1)
-                    char = ASCII_MASTER_CHARS[index]
+                    index = np.clip(index, 0, len(charset) - 1)
+
+                    if index < color_breakpoint:
+                        char_color = ascii_settings.DARK_COLOR
+                    else:
+                        char_color = ascii_settings.BRIGHT_COLOR
+                        
+                    char = charset[index]
 
                     # 2. Calculate drawing position
                     x = j * block_w
@@ -140,7 +144,7 @@ class AsciiEffect:
                         (x, y + block_h - 1),
                         FONT,
                         FONT_SCALE,
-                        (255, 255, 255),
+                        char_color,
                         THICKNESS,
                         cv2.LINE_AA,
                     )

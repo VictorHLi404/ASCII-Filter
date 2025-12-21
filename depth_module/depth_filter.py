@@ -28,6 +28,7 @@ class DepthFilter:
                 self.transform = midas_transforms.small_transform
 
             print(f"MiDaS model '{self.model_type}' loaded successfully.")
+            print("Starting MiDaS processor.")
 
         except Exception as e:
             print(f"Error loading MiDaS model or dependencies: {e}")
