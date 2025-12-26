@@ -1,63 +1,41 @@
 import torch
 import cv2
 import numpy as np
-
+from transformers import AutoImageProcessor, AutoModelForDepthEstimation
+from PIL import Image
 
 class DepthFilter:
 
     def __init__(self, model_type: str):
+
         # --- Configuration ---
         # Use the CPU for now since the GPU installation failed
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        print(f"Loading MiDaS model on device: {self.device}...")
-
-        # Load MiDaS model (MiDaS_small is fast)
-        self.model_type = model_type
-        try:
-            self.midas = torch.hub.load("intel-isl/MiDaS", self.model_type)
-            self.midas.to(self.device)
-            self.midas.eval()
-
-            # Load MiDaS transforms
-            midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
-
-            if self.model_type == "DPT_Large" or self.model_type == "DPT_Hybrid":
-                self.transform = midas_transforms.dpt_transform
-            else:
-                self.transform = midas_transforms.small_transform
-
-            print(f"MiDaS model '{self.model_type}' loaded successfully.")
-            print("Starting MiDaS processor.")
-
+        try: 
+            self.depth_processor = AutoImageProcessor.from_pretrained(model_type)
+            self.depth_model = AutoModelForDepthEstimation.from_pretrained(model_type).to(self.device)
         except Exception as e:
-            print(f"Error loading MiDaS model or dependencies: {e}")
-            print(
-                "Please ensure you installed torch, torchvision, torchaudio, and timm."
-            )
+            print(f"Error loading Depth Filter: {e}")
             exit()
 
     def get_normalized_depth_map(self, frame):
-        """Generates and normalizes the depth map using MiDaS."""
-        img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        image = Image.fromarray(rgb_frame)
 
-        # Apply MiDaS transformation (resizing, normalization)
-        input_batch = self.transform(img).to(self.device)
+        inputs = self.depth_processor(images=image, return_tensors="pt")
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
         with torch.no_grad():
-            prediction = self.midas(input_batch)
+            outputs = self.depth_model(**inputs)
 
-            # Resize the output prediction to the original frame size
-            prediction = torch.nn.functional.interpolate(
-                prediction.unsqueeze(1),
-                size=img.shape[:2],
-                mode="bicubic",
-                align_corners=False,
-            ).squeeze()
+        processed_outputs = self.depth_processor.post_process_depth_estimation(
+            outputs,
+            target_sizes=[(image.height, image.width)]
+        )
 
-        depth_map = prediction.cpu().numpy()
+        predicted_depth = processed_outputs[0]["predicted_depth"]
+        depth_map = predicted_depth.detach().cpu().numpy().squeeze()
 
-        # Normalize depth map to range [0, 1] for visual/functional use
         depth_min = depth_map.min()
         depth_max = depth_map.max()
         normalized_depth = (

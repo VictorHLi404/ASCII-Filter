@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Optional
 import json
 
-
 @dataclass
 class FilterSettings:
     W_DOTS: int
@@ -32,7 +31,7 @@ class AsciiVideoEditor:
 
     MAX_DISPLAY_HEIGHT = 320
     MAIN_WINDOW_NAME = "ASCII Depth Filter | Press Q to Quit"
-    MODEL_TYPE = "DPT_Large"
+    MODEL_TYPE = "depth-anything/Depth-Anything-V2-Small-hf"
 
     def __init__(self):
         if self.load_saved_settings_from_file() is not None:
@@ -461,6 +460,11 @@ class AsciiVideoEditor:
 
 
 if __name__ == "__main__":
+    """
+    TODO: implement sobel detection for better clarity, add new parameter to influence how much it factors into the final image
+    TODO: switch depth filtering model to depth anything v2
+    TODO: MAYBE do the acerola thing where edges are changed depending on angle? 
+    """
     video_editor = AsciiVideoEditor()
     mode = input(
         "Enter 1 to enter live camera display mode, or Enter 2 to enter video editing mode: "

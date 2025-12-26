@@ -8,19 +8,50 @@
     },
     "SAVED": {
         "W_DOTS": 120,
-        "ATTENUATION_STRENGTH": 100,
-        "GAMMA": 54,
-        "PALETTE_THRESHOLD": 64,
+        "ATTENUATION_STRENGTH": 0,
+        "GAMMA": 90,
+        "PALETTE_THRESHOLD": 60,
         "BRIGHTNESS_FLOOR": 0
     },
     "FIXED": {
         "BRIGHT_CHARS": [
-            "Z", "w", "p", "b", "h", "o", "#", "W", "8", "B", "$"
+            "Z",
+            "w",
+            "p",
+            "b",
+            "h",
+            "o",
+            "#",
+            "W",
+            "8",
+            "B",
+            "$"
         ],
         "DARK_CHARS": [
-            ".", "`", "\"", ";", "I", "!", ">", "~", "_", "?", "[", "{", ")", "|"
+            ".",
+            "`",
+            "\"",
+            ";",
+            "I",
+            "!",
+            ">",
+            "~",
+            "_",
+            "?",
+            "[",
+            "{",
+            ")",
+            "|"
         ],
-        "DARK_COLOR": [14, 14, 26],
-        "BRIGHT_COLOR": [255, 253, 238]
+        "DARK_COLOR": [
+            255,
+            253,
+            238
+        ],
+        "BRIGHT_COLOR": [
+            255,
+            253,
+            238
+        ]
     }
 }
