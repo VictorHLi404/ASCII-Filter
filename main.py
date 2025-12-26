@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 from depth_module.depth_filter import DepthFilter
 from ascii_effect.ascii_effect import AsciiEffect
+from edge_module.edge_mapping import EdgeMapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -296,6 +297,7 @@ class AsciiVideoEditor:
             # Flip the frame
             frame = cv2.flip(frame, 1)
             normalized_depth = self.depth_filter.get_normalized_depth_map(frame)
+            normalized_depth = EdgeMapping.modify_depth_map_with_edges(frame, normalized_depth)
             depth_frame = self.process_depth_frame(normalized_depth)
             ascii_frame = self.process_ascii_frame(frame, normalized_depth)
 
@@ -362,6 +364,7 @@ class AsciiVideoEditor:
 
             current_frame = next_frame
             normalized_depth = self.depth_filter.get_normalized_depth_map(current_frame)
+            normalized_depth = EdgeMapping.modify_depth_map_with_edges(current_frame, normalized_depth)
             depth_frame = self.process_depth_frame(normalized_depth)
             ascii_frame = self.process_ascii_frame(current_frame, normalized_depth)
 
@@ -428,6 +431,7 @@ class AsciiVideoEditor:
             if not ret:
                 break
             normalized_depth = self.depth_filter.get_normalized_depth_map(frame)
+            normalized_depth = EdgeMapping.modify_depth_map_with_edges(frame, normalized_depth)
             final_ascii_frame = self.process_ascii_frame(frame, normalized_depth)
 
             # Case A: Padding (if final_ascii_frame is too narrow)
@@ -462,7 +466,6 @@ class AsciiVideoEditor:
 if __name__ == "__main__":
     """
     TODO: implement sobel detection for better clarity, add new parameter to influence how much it factors into the final image
-    TODO: switch depth filtering model to depth anything v2
     TODO: MAYBE do the acerola thing where edges are changed depending on angle? 
     """
     video_editor = AsciiVideoEditor()

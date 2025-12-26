@@ -8,9 +8,9 @@
     },
     "SAVED": {
         "W_DOTS": 120,
-        "ATTENUATION_STRENGTH": 0,
-        "GAMMA": 90,
-        "PALETTE_THRESHOLD": 60,
+        "ATTENUATION_STRENGTH": 15,
+        "GAMMA": 96,
+        "PALETTE_THRESHOLD": 50,
         "BRIGHTNESS_FLOOR": 0
     },
     "FIXED": {
