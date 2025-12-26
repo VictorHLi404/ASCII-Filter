@@ -8,39 +8,27 @@
     },
     "SAVED": {
         "W_DOTS": 120,
-        "ATTENUATION_STRENGTH": 15,
-        "GAMMA": 96,
-        "PALETTE_THRESHOLD": 50,
+        "ATTENUATION_STRENGTH": 25,
+        "GAMMA": 86,
+        "PALETTE_THRESHOLD": 60,
         "BRIGHTNESS_FLOOR": 0
     },
     "FIXED": {
         "BRIGHT_CHARS": [
             "Z",
-            "w",
             "p",
-            "b",
             "h",
-            "o",
             "#",
-            "W",
             "8",
-            "B",
             "$"
         ],
         "DARK_CHARS": [
             ".",
-            "`",
             "\"",
-            ";",
-            "I",
-            "!",
             ">",
-            "~",
             "_",
             "?",
-            "[",
             "{",
-            ")",
             "|"
         ],
         "DARK_COLOR": [

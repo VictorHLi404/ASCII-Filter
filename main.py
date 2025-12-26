@@ -35,6 +35,9 @@ class AsciiVideoEditor:
     MODEL_TYPE = "depth-anything/Depth-Anything-V2-Small-hf"
 
     def __init__(self):
+        self.initialize_settings()
+
+    def initialize_settings(self):
         if self.load_saved_settings_from_file() is not None:
             self.adjustable_settings = self.load_saved_settings_from_file()
         else:
@@ -488,6 +491,7 @@ if __name__ == "__main__":
                     "Failed to load file correctly. Please enter the file name again, or recheck the folder: "
                 )
             video_editor.run_live_preview(file_path)
+            video_editor.initialize_settings()
             answer = input("Do you want to edit another video? Y/N: ")
             if "N" in answer:
                 break

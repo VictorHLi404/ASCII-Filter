@@ -5,7 +5,7 @@ class EdgeMapping:
     @staticmethod
     def get_edge_mapping(frame):
         image = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(image, 100, 200)
+        edges = cv2.Canny(image, 50, 100)
         return edges
     
     @staticmethod
