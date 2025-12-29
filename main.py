@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 import json
 
+
 @dataclass
 class FilterSettings:
     W_DOTS: int
@@ -15,6 +16,8 @@ class FilterSettings:
     GAMMA: int
     PALETTE_THRESHOLD: int
     BRIGHTNESS_FLOOR: int
+    EDGE_THRESHOLD_LOW: int
+    EDGE_THRESHOLD_HIGH: int
 
 
 @dataclass
@@ -24,13 +27,15 @@ class AsciiSettings:
     DARK_COLOR: list[int]
     BRIGHT_COLOR: list[int]
 
+
 class AsciiVideoEditor:
 
     SETTINGS_FILE_PATH = "settings/settings.json"
     INPUT_VIDEOS_FILE_PATH = "input_videos"
     OUTPUT_VIDEOS_FILE_PATH = "output_videos"
 
-    MAX_DISPLAY_HEIGHT = 320
+    MONITOR_DISPLAY_HEIGHT = 800
+    MONITOR_DISPLAY_WIDTH = 1200
     MAIN_WINDOW_NAME = "ASCII Depth Filter | Press Q to Quit"
     MODEL_TYPE = "depth-anything/Depth-Anything-V2-Small-hf"
 
@@ -57,11 +62,13 @@ class AsciiVideoEditor:
                     GAMMA=default_settings["GAMMA"],
                     PALETTE_THRESHOLD=default_settings["PALETTE_THRESHOLD"],
                     BRIGHTNESS_FLOOR=default_settings["BRIGHTNESS_FLOOR"],
+                    EDGE_THRESHOLD_LOW=default_settings["EDGE_THRESHOLD_LOW"],
+                    EDGE_THRESHOLD_HIGH=default_settings["EDGE_THRESHOLD_HIGH"],
                 )
                 return filter_settings
         except:
             raise Exception("Failed to successfully parse default settings.")
-    
+
     def load_fixed_settings(self) -> AsciiSettings:
         try:
             with open(AsciiVideoEditor.SETTINGS_FILE_PATH, "r") as file:
@@ -71,7 +78,7 @@ class AsciiVideoEditor:
                     DARK_CHARS=fixed_settings["DARK_CHARS"],
                     BRIGHT_CHARS=fixed_settings["BRIGHT_CHARS"],
                     DARK_COLOR=fixed_settings["DARK_COLOR"],
-                    BRIGHT_COLOR=fixed_settings["BRIGHT_COLOR"]
+                    BRIGHT_COLOR=fixed_settings["BRIGHT_COLOR"],
                 )
                 return ascii_settings
         except:
@@ -90,6 +97,8 @@ class AsciiVideoEditor:
                     GAMMA=saved_settings["GAMMA"],
                     PALETTE_THRESHOLD=saved_settings["PALETTE_THRESHOLD"],
                     BRIGHTNESS_FLOOR=saved_settings["BRIGHTNESS_FLOOR"],
+                    EDGE_THRESHOLD_LOW=saved_settings["EDGE_THRESHOLD_LOW"],
+                    EDGE_THRESHOLD_HIGH=saved_settings["EDGE_THRESHOLD_HIGH"],
                 )
                 return filter_settings
         except:
@@ -126,6 +135,12 @@ class AsciiVideoEditor:
             ),
             "BRIGHTNESS_FLOOR": cv2.getTrackbarPos(
                 "BRIGHTNESS FLOOR", AsciiVideoEditor.MAIN_WINDOW_NAME
+            ),
+            "EDGE_THRESHOLD_LOW": cv2.getTrackbarPos(
+                "EDGE THRESHOLD (LOW)", AsciiVideoEditor.MAIN_WINDOW_NAME
+            ),
+            "EDGE_THRESHOLD_HIGH": cv2.getTrackbarPos(
+                "EDGE THRESHOLD (HIGH)", AsciiVideoEditor.MAIN_WINDOW_NAME
             ),
         }
         self.write_settings_to_file(settings_to_save)
@@ -179,6 +194,28 @@ class AsciiVideoEditor:
             lambda x: None,
         )
 
+        cv2.createTrackbar(
+            "EDGE THRESHOLD (LOW)",
+            AsciiVideoEditor.MAIN_WINDOW_NAME,
+            self.adjustable_settings.EDGE_THRESHOLD_LOW,
+            300,
+            lambda x: None,
+        )
+        cv2.setTrackbarMin(
+            "EDGE THRESHOLD (LOW)", AsciiVideoEditor.MAIN_WINDOW_NAME, 10
+        )
+
+        cv2.createTrackbar(
+            "EDGE THRESHOLD (HIGH)",
+            AsciiVideoEditor.MAIN_WINDOW_NAME,
+            self.adjustable_settings.EDGE_THRESHOLD_HIGH,
+            600,
+            lambda x: None,
+        )
+        cv2.setTrackbarMin(
+            "EDGE THRESHOLD (HIGH)", AsciiVideoEditor.MAIN_WINDOW_NAME, 30
+        )
+
     def process_depth_frame(self, normalized_depth):
         # Convert the normalized depth map [0, 1] back to a visual 8-bit image [0, 255]
         # Since we INVERTED the depth map (0=Closest, 1=Farthest),
@@ -190,54 +227,50 @@ class AsciiVideoEditor:
         return depth_display
 
     def process_ascii_frame(self, frame, normalized_depth):
-        ascii_index_grid, final_brightness_grid = (
-            AsciiEffect.calculate_ascii_index_and_brightness(
-                frame,
-                normalized_depth,
-                max(
-                    40,
-                    cv2.getTrackbarPos("RESOLUTION", AsciiVideoEditor.MAIN_WINDOW_NAME),
-                ),
+        edge_mapping = EdgeMapping.get_edge_mapping(
+            frame,
+            cv2.getTrackbarPos(
+                "EDGE THRESHOLD (LOW)", AsciiVideoEditor.MAIN_WINDOW_NAME
+            ),
+            cv2.getTrackbarPos(
+                "EDGE THRESHOLD (HIGH)", AsciiVideoEditor.MAIN_WINDOW_NAME
+            ),
+        )
+
+        ascii_index_grid = AsciiEffect.calculate_ascii_index_and_brightness(
+            frame,
+            normalized_depth,
+            edge_mapping,
+            max(
+                40,
+                cv2.getTrackbarPos("RESOLUTION", AsciiVideoEditor.MAIN_WINDOW_NAME),
+            ),
+            cv2.getTrackbarPos("DEPTH ATTENUATION", AsciiVideoEditor.MAIN_WINDOW_NAME)
+            / 100.0,
+            max(
+                0.01,
+                cv2.getTrackbarPos("GAMMA", AsciiVideoEditor.MAIN_WINDOW_NAME) / 100.0,
+            ),
+            max(
+                5,
                 cv2.getTrackbarPos(
-                    "DEPTH ATTENUATION", AsciiVideoEditor.MAIN_WINDOW_NAME
+                    "BRIGHTNESS FLOOR", AsciiVideoEditor.MAIN_WINDOW_NAME
+                ),
+            ),
+            max(
+                0.01,
+                cv2.getTrackbarPos(
+                    "PALETTE THRESHOLD", AsciiVideoEditor.MAIN_WINDOW_NAME
                 )
                 / 100.0,
-                max(
-                    0.01,
-                    cv2.getTrackbarPos("GAMMA", AsciiVideoEditor.MAIN_WINDOW_NAME)
-                    / 100.0,
-                ),
-                max(
-                    5,
-                    cv2.getTrackbarPos(
-                        "BRIGHTNESS FLOOR", AsciiVideoEditor.MAIN_WINDOW_NAME
-                    ),
-                ),
-                max(
-                    0.01,
-                    cv2.getTrackbarPos(
-                        "PALETTE THRESHOLD", AsciiVideoEditor.MAIN_WINDOW_NAME
-                    )
-                    / 100.0,
-                ),
-                self.fixed_settings
-            )
+            ),
+            self.fixed_settings,
         )
-        # 1.2 Calculate Density Mask (Stochastic Sampling)
-
-        # Convert final_brightness_grid [0-255] to density probability [0.0-1.0]
-        # Low brightness (background) means low density probability.
-        density_probability_grid = final_brightness_grid / 255.0
-
-        # Apply Stochastic Sampling (similar to the Pointillism mask):
-        random_grid = np.random.rand(*density_probability_grid.shape)
-        density_mask = (density_probability_grid > random_grid).astype(np.uint8)
 
         ascii_frame = AsciiEffect.create_ascii_frame_with_density(
             ascii_index_grid,
-            density_mask,
             frame,
-            self.fixed_settings
+            self.fixed_settings,
         )
 
         # --- FIX: RESIZE FINAL_FRAME TO MATCH INPUT FRAME HEIGHT ---
@@ -259,9 +292,11 @@ class AsciiVideoEditor:
 
     def create_display_output(self, original_frame, depth_frame, ascii_frame):
         h_orig, w_orig = original_frame.shape[:2]
+        h_scale_factor = AsciiVideoEditor.MONITOR_DISPLAY_HEIGHT / (h_orig)
+        w_scale_factor = AsciiVideoEditor.MONITOR_DISPLAY_WIDTH / (w_orig * 3)
+        scale_factor = min(h_scale_factor, w_scale_factor)
 
-        scale_factor = AsciiVideoEditor.MAX_DISPLAY_HEIGHT / h_orig
-        target_height = AsciiVideoEditor.MAX_DISPLAY_HEIGHT
+        target_height = int(h_orig * scale_factor)
         target_width = int(w_orig * scale_factor)
 
         # 1. Resize the Original Frame
@@ -277,10 +312,7 @@ class AsciiVideoEditor:
         )
 
         # 4. Stack the frames in the 2x2 layout: (Original, Depth) over (ASCII, ASCII)
-        top_row = np.hstack((display_original, display_depth))
-        bottom_row = np.hstack((display_ascii, display_ascii))
-
-        output_display = np.vstack((top_row, bottom_row))
+        output_display = np.hstack((display_original, display_depth, display_ascii))
         return output_display
 
     def run_live_camera_display(self):
@@ -300,10 +332,11 @@ class AsciiVideoEditor:
             # Flip the frame
             frame = cv2.flip(frame, 1)
             normalized_depth = self.depth_filter.get_normalized_depth_map(frame)
-            normalized_depth = EdgeMapping.modify_depth_map_with_edges(frame, normalized_depth)
-            depth_frame = self.process_depth_frame(normalized_depth)
             ascii_frame = self.process_ascii_frame(frame, normalized_depth)
-
+            normalized_depth = EdgeMapping.modify_depth_map_with_edges(
+                frame, normalized_depth
+            )
+            depth_frame = self.process_depth_frame(normalized_depth)
             output_display = self.create_display_output(frame, depth_frame, ascii_frame)
 
             if not self.first_frame_processed:
@@ -367,10 +400,11 @@ class AsciiVideoEditor:
 
             current_frame = next_frame
             normalized_depth = self.depth_filter.get_normalized_depth_map(current_frame)
-            normalized_depth = EdgeMapping.modify_depth_map_with_edges(current_frame, normalized_depth)
-            depth_frame = self.process_depth_frame(normalized_depth)
             ascii_frame = self.process_ascii_frame(current_frame, normalized_depth)
-
+            normalized_depth = EdgeMapping.modify_depth_map_with_edges(
+                current_frame, normalized_depth
+            )
+            depth_frame = self.process_depth_frame(normalized_depth)
             output_display = self.create_display_output(
                 current_frame, depth_frame, ascii_frame
             )
@@ -434,9 +468,7 @@ class AsciiVideoEditor:
             if not ret:
                 break
             normalized_depth = self.depth_filter.get_normalized_depth_map(frame)
-            normalized_depth = EdgeMapping.modify_depth_map_with_edges(frame, normalized_depth)
             final_ascii_frame = self.process_ascii_frame(frame, normalized_depth)
-
             # Case A: Padding (if final_ascii_frame is too narrow)
             if final_ascii_frame.shape[1] < input_width:
                 padding_width = input_width - final_ascii_frame.shape[1]
@@ -469,7 +501,7 @@ class AsciiVideoEditor:
 if __name__ == "__main__":
     """
     TODO: implement sobel detection for better clarity, add new parameter to influence how much it factors into the final image
-    TODO: MAYBE do the acerola thing where edges are changed depending on angle? 
+    TODO: MAYBE do the acerola thing where edges are changed depending on angle?
     """
     video_editor = AsciiVideoEditor()
     mode = input(

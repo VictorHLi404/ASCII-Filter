@@ -1,12 +1,14 @@
 import cv2
 import numpy as np
 
+
 class AsciiEffect:
 
     @staticmethod
     def calculate_ascii_index_and_brightness(
         frame,
         normalized_depth,
+        edge_mapping,
         W_DOTS,
         ATTENUATION_STRENGTH,
         GAMMA,
@@ -24,6 +26,9 @@ class AsciiEffect:
         small_depth_map = cv2.resize(
             normalized_depth, (W_DOTS, H_DOTS), interpolation=cv2.INTER_NEAREST
         )
+        small_edge_mapping = cv2.resize(
+            edge_mapping, (W_DOTS, H_DOTS), interpolation=cv2.INTER_NEAREST
+        )
 
         # 2. Apply Depth Attenuation: B_eff = B * (1 - D_norm * Strength)
         attenuation_factor = 1.0 - (small_depth_map * ATTENUATION_STRENGTH)
@@ -35,8 +40,8 @@ class AsciiEffect:
         gamma_corrected_brightness = np.power(normalized_brightness, GAMMA)
         final_brightness = (gamma_corrected_brightness * 255.0).astype(np.float32)
         final_brightness = np.clip(final_brightness, 0, 255)
+        final_brightness = np.maximum(final_brightness, small_edge_mapping)
 
-        # CRITICAL: Apply minimum brightness floor *after* gamma.
         final_brightness = np.maximum(final_brightness, MIN_BRIGHTNESS_FLOOR)
 
         # 4. MULTI-PALETTE MAPPING (The core logic to find the character index)
@@ -71,83 +76,87 @@ class AsciiEffect:
             ascii_index_grid[bright_mask] = bright_indices + offset
 
         # CHANGE: Return both index grid and the final 0-255 brightness grid
-        return ascii_index_grid, final_brightness
+        return ascii_index_grid
 
     @staticmethod
     def create_ascii_frame_with_density(
-        brightness_indices, density_mask, original_frame, ascii_settings
+        brightness_indices, original_frame, ascii_settings
     ):
-        
+
         color_breakpoint = len(ascii_settings.DARK_CHARS)
         charset = ascii_settings.DARK_CHARS + ascii_settings.BRIGHT_CHARS
-        H_DOTS, W_DOTS_actual = brightness_indices.shape
+        H_DOTS, W_DOTS = brightness_indices.shape
 
         target_h = original_frame.shape[0]
         target_w = original_frame.shape[1]
 
-        # --- RECALCULATE BLOCK SIZES BASED ON TARGET FRAME ---
-        # This calculation is now guaranteed to result in a block size that is at least 1.
-        block_w = target_w // W_DOTS_actual
-        block_h = target_h // H_DOTS
+        # --- REVISED BLOCK SIZE CALCULATION (Use floating point for accurate drawing) ---
+        # We calculate the float-based block size (pixel width of one ASCII character cell)
+        float_block_w = target_w / W_DOTS
+        float_block_h = target_h / H_DOTS
 
-        block_w = max(1, block_w)
-        block_h = max(1, block_h)
-
-        # --- DYNAMIC FONT SCALE CALCULATION ---
-        # FONT_SCALE should be proportional to the block height.
-        # Use 0.8 to give a little space between characters.
+        # --- REVERT TO OPENCV FONT CALCULATION ---
         FONT = cv2.FONT_HERSHEY_SIMPLEX
-        FONT_SCALE = (
-            block_h / 20.0
-        )  # Heuristic: 20 is approx. character height at scale 1.0
-        FONT_SCALE = FONT_SCALE * 0.9  # Fine-tuning for space
+
+        # Heuristic calculation for FONT_SCALE based on block height
+        # 20.0 is an approximation of the height of a char at scale 1.0
+        FONT_SCALE = (float_block_h / 20.0) * 0.9
         FONT_SCALE = max(0.1, FONT_SCALE)
-        THICKNESS = max(
-            1, int(FONT_SCALE * 1.5)
-        )  # Use slightly thicker line for better visibility
 
-        # The output frame must match the full size of the original frame for proper stacking
+        THICKNESS = max(1, int(FONT_SCALE * 1.5))
+
+        # Use a reference character to determine text size for centering (best practice for OpenCV)
+        (text_w, text_h), baseline = cv2.getTextSize("W", FONT, FONT_SCALE, THICKNESS)
+
+        # The output frame must match the full size of the original frame
         output_frame = np.zeros((target_h, target_w, 3), dtype=np.uint8)
-
-        output_frame = np.zeros((target_h, target_w, 3), dtype=np.uint8)
-
-        # We must assume the space is NOT in ASCII_MASTER_CHARS to get a true black hole.
 
         # --- Loop through the index grid and draw the corresponding character ---
         for i in range(H_DOTS):
-            for j in range(W_DOTS_actual):
+            for j in range(W_DOTS):
 
-                # Check the Density Mask:
-                if density_mask[i, j] == 1:
-                    # DENSITY IS HIGH ENOUGH (Foreground/Bright/Close): Draw the calculated character.
+                index = brightness_indices[i, j]
+                index = np.clip(index, 0, len(charset) - 1)
 
-                    # 1. Get the ASCII character
-                    index = brightness_indices[i, j]
-                    # Ensure index is within the master list bounds
-                    index = np.clip(index, 0, len(charset) - 1)
+                # Determine the color (which is now correctly BGR)
+                if index < color_breakpoint:
+                    char_color = ascii_settings.DARK_COLOR
+                else:
+                    char_color = ascii_settings.BRIGHT_COLOR
 
-                    if index < color_breakpoint:
-                        char_color = ascii_settings.DARK_COLOR
-                    else:
-                        char_color = ascii_settings.BRIGHT_COLOR
-                        
-                    char = charset[index]
+                char = charset[index]
 
-                    # 2. Calculate drawing position
-                    x = j * block_w
-                    y = i * block_h
+                # 2. Calculate drawing position
+                # Use floating point block size, then convert to integer pixel coordinates
+                x_start = int(j * float_block_w)
+                y_start = int(i * float_block_h)
 
-                    # Draw the character
-                    cv2.putText(
-                        output_frame,
-                        char,
-                        (x, y + block_h - 1),
-                        FONT,
-                        FONT_SCALE,
-                        char_color,
-                        THICKNESS,
-                        cv2.LINE_AA,
-                    )
-                # else: DENSITY IS TOO LOW (Background/Dark/Far): Draw nothing (leave it black)
+                # The actual pixel width/height of the current cell is:
+                # (j+1) * float_block_w - j * float_block_w
+                # We calculate the block size for the CURRENT CELL based on integer boundaries
+                current_block_w = int((j + 1) * float_block_w) - x_start
+                current_block_h = int((i + 1) * float_block_h) - y_start
+
+                # IMPORTANT: Re-measure text size for the current FONT_SCALE/THICKNESS
+                # (This part is okay to use the fixed size 'text_w/text_h' outside the loop
+                # since the font scale is fixed based on H_DOTS)
+
+                # Calculate position for center alignment (relative to the current cell)
+                # Use the calculated current_block_w/h for centering
+                draw_x = x_start + (current_block_w - text_w) // 2
+                draw_y = y_start + (current_block_h + text_h) // 2
+
+                # Draw the character
+                cv2.putText(
+                    output_frame,
+                    char,
+                    (draw_x, draw_y),
+                    FONT,
+                    FONT_SCALE,
+                    char_color,
+                    THICKNESS,
+                    cv2.LINE_AA,
+                )
+            # else: DENSITY IS TOO LOW (Background/Dark/Far): Draw nothing (leave it black)
 
         return output_frame

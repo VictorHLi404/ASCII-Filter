@@ -4,6 +4,7 @@ import numpy as np
 from transformers import AutoImageProcessor, AutoModelForDepthEstimation
 from PIL import Image
 
+
 class DepthFilter:
 
     def __init__(self, model_type: str):
@@ -11,9 +12,11 @@ class DepthFilter:
         # --- Configuration ---
         # Use the CPU for now since the GPU installation failed
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        try: 
+        try:
             self.depth_processor = AutoImageProcessor.from_pretrained(model_type)
-            self.depth_model = AutoModelForDepthEstimation.from_pretrained(model_type).to(self.device)
+            self.depth_model = AutoModelForDepthEstimation.from_pretrained(
+                model_type
+            ).to(self.device)
         except Exception as e:
             print(f"Error loading Depth Filter: {e}")
             exit()
@@ -29,8 +32,7 @@ class DepthFilter:
             outputs = self.depth_model(**inputs)
 
         processed_outputs = self.depth_processor.post_process_depth_estimation(
-            outputs,
-            target_sizes=[(image.height, image.width)]
+            outputs, target_sizes=[(image.height, image.width)]
         )
 
         predicted_depth = processed_outputs[0]["predicted_depth"]

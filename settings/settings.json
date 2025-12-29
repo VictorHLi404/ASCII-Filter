@@ -4,25 +4,32 @@
         "ATTENUATION_STRENGTH": 70,
         "GAMMA": 90,
         "PALETTE_THRESHOLD": 50,
-        "BRIGHTNESS_FLOOR": 5
+        "BRIGHTNESS_FLOOR": 5,
+        "EDGE_THRESHOLD_LOW": 50,
+        "EDGE_THRESHOLD_HIGH": 150
     },
     "SAVED": {
-        "W_DOTS": 120,
-        "ATTENUATION_STRENGTH": 25,
+        "W_DOTS": 90,
+        "ATTENUATION_STRENGTH": 0,
         "GAMMA": 86,
-        "PALETTE_THRESHOLD": 60,
-        "BRIGHTNESS_FLOOR": 0
+        "PALETTE_THRESHOLD": 95,
+        "BRIGHTNESS_FLOOR": 29,
+        "EDGE_THRESHOLD_LOW": 20,
+        "EDGE_THRESHOLD_HIGH": 55
     },
     "FIXED": {
         "BRIGHT_CHARS": [
-            "Z",
+            "q",
             "p",
             "h",
             "#",
             "8",
-            "$"
+            "$",
+            "@",
+            "W"
         ],
         "DARK_CHARS": [
+            "",
             ".",
             "\"",
             ">",
@@ -32,14 +39,14 @@
             "|"
         ],
         "DARK_COLOR": [
-            255,
-            253,
-            238
+            205,
+            205,
+            205
         ],
         "BRIGHT_COLOR": [
             255,
-            253,
-            238
+            255,
+            255
         ]
     }
 }
