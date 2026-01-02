@@ -22,8 +22,8 @@ class EdgeMapping:
         return blurred_edges
 
     @staticmethod
-    def modify_depth_map_with_edges(frame, normalized_depth):
-        edge_mapping = EdgeMapping.get_edge_mapping(frame)
+    def modify_depth_map_with_edges(frame, normalized_depth, edge_low_threshold=30, edge_high_threshold=90, kernel_size=3):
+        edge_mapping = EdgeMapping.get_edge_mapping(frame, edge_low_threshold, edge_high_threshold, kernel_size)
         normalized_edges = edge_mapping.astype(np.float32) / 255.0
         modified_depth = np.maximum(normalized_depth, normalized_edges)
         return modified_depth

@@ -18,6 +18,7 @@ class FilterSettings:
     BRIGHTNESS_FLOOR: int
     EDGE_THRESHOLD_LOW: int
     EDGE_THRESHOLD_HIGH: int
+    EDGE_THICKNESS: int
 
 
 @dataclass
@@ -64,6 +65,7 @@ class AsciiVideoEditor:
                     BRIGHTNESS_FLOOR=default_settings["BRIGHTNESS_FLOOR"],
                     EDGE_THRESHOLD_LOW=default_settings["EDGE_THRESHOLD_LOW"],
                     EDGE_THRESHOLD_HIGH=default_settings["EDGE_THRESHOLD_HIGH"],
+                    EDGE_THICKNESS=default_settings["EDGE_THICKNESS"]
                 )
                 return filter_settings
         except:
@@ -99,6 +101,7 @@ class AsciiVideoEditor:
                     BRIGHTNESS_FLOOR=saved_settings["BRIGHTNESS_FLOOR"],
                     EDGE_THRESHOLD_LOW=saved_settings["EDGE_THRESHOLD_LOW"],
                     EDGE_THRESHOLD_HIGH=saved_settings["EDGE_THRESHOLD_HIGH"],
+                    EDGE_THICKNESS=saved_settings["EDGE_THICKNESS"]
                 )
                 return filter_settings
         except:
@@ -142,6 +145,9 @@ class AsciiVideoEditor:
             "EDGE_THRESHOLD_HIGH": cv2.getTrackbarPos(
                 "EDGE THRESHOLD (HIGH)", AsciiVideoEditor.MAIN_WINDOW_NAME
             ),
+            "EDGE_THICKNESS": cv2.getTrackbarPos(
+                "EDGE THICKNESS", AsciiVideoEditor.MAIN_WINDOW_NAME
+            )
         }
         self.write_settings_to_file(settings_to_save)
         print("Saved current settings to file.")
@@ -216,12 +222,34 @@ class AsciiVideoEditor:
             "EDGE THRESHOLD (HIGH)", AsciiVideoEditor.MAIN_WINDOW_NAME, 30
         )
 
-    def process_depth_frame(self, normalized_depth):
+        cv2.createTrackbar(
+            "EDGE THICKNESS",
+            AsciiVideoEditor.MAIN_WINDOW_NAME,
+            self.adjustable_settings.EDGE_THICKNESS,
+            20,
+            lambda x: None
+        )
+
+        cv2.setTrackbarMin(
+            "EDGE THICKNESS", AsciiVideoEditor.MAIN_WINDOW_NAME, 1
+        )
+
+    def process_depth_frame(self, frame, normalized_depth):
         # Convert the normalized depth map [0, 1] back to a visual 8-bit image [0, 255]
         # Since we INVERTED the depth map (0=Closest, 1=Farthest),
         # the display image will show: Black (0) = Closest, White (255) = Farthest.
-        depth_frame = (normalized_depth * 255).astype(np.uint8)
-
+        edge_applied_map = EdgeMapping.modify_depth_map_with_edges(frame, normalized_depth,
+            cv2.getTrackbarPos(
+                "EDGE THRESHOLD (LOW)", AsciiVideoEditor.MAIN_WINDOW_NAME
+            ),
+            cv2.getTrackbarPos(
+                "EDGE THRESHOLD (HIGH)", AsciiVideoEditor.MAIN_WINDOW_NAME
+            ),
+            cv2.getTrackbarPos(
+                "EDGE THICKNESS", AsciiVideoEditor.MAIN_WINDOW_NAME
+            )
+        )
+        depth_frame = (edge_applied_map * 255).astype(np.uint8)
         # Convert the grayscale depth map to a 3-channel BGR image for stacking
         depth_display = cv2.cvtColor(depth_frame, cv2.COLOR_GRAY2BGR)
         return depth_display
@@ -235,6 +263,9 @@ class AsciiVideoEditor:
             cv2.getTrackbarPos(
                 "EDGE THRESHOLD (HIGH)", AsciiVideoEditor.MAIN_WINDOW_NAME
             ),
+            cv2.getTrackbarPos(
+                "EDGE THICKNESS", AsciiVideoEditor.MAIN_WINDOW_NAME
+            )
         )
 
         ascii_index_grid = AsciiEffect.calculate_ascii_index_and_brightness(
@@ -333,10 +364,7 @@ class AsciiVideoEditor:
             frame = cv2.flip(frame, 1)
             normalized_depth = self.depth_filter.get_normalized_depth_map(frame)
             ascii_frame = self.process_ascii_frame(frame, normalized_depth)
-            normalized_depth = EdgeMapping.modify_depth_map_with_edges(
-                frame, normalized_depth
-            )
-            depth_frame = self.process_depth_frame(normalized_depth)
+            depth_frame = self.process_depth_frame(frame, normalized_depth)
             output_display = self.create_display_output(frame, depth_frame, ascii_frame)
 
             if not self.first_frame_processed:
@@ -401,10 +429,7 @@ class AsciiVideoEditor:
             current_frame = next_frame
             normalized_depth = self.depth_filter.get_normalized_depth_map(current_frame)
             ascii_frame = self.process_ascii_frame(current_frame, normalized_depth)
-            normalized_depth = EdgeMapping.modify_depth_map_with_edges(
-                current_frame, normalized_depth
-            )
-            depth_frame = self.process_depth_frame(normalized_depth)
+            depth_frame = self.process_depth_frame(current_frame, normalized_depth)
             output_display = self.create_display_output(
                 current_frame, depth_frame, ascii_frame
             )
