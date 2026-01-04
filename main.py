@@ -166,17 +166,15 @@ class AsciiVideoEditor:
 
         cv2.createTrackbar(
             "DEPTH ATTENUATION",
-            AsciiVideoEditor.MAIN_WINDOW_NAME,  # Use the main window name
+            AsciiVideoEditor.MAIN_WINDOW_NAME,
             self.adjustable_settings.ATTENUATION_STRENGTH,
             100,
             lambda x: None,
         )
 
-        # Trackbar 3: GAMMA (Contrast)
-        # Range: 1 to 300 (scaled to 0.01 to 3.00)
         cv2.createTrackbar(
             "GAMMA",
-            AsciiVideoEditor.MAIN_WINDOW_NAME,  # Use the main window name
+            AsciiVideoEditor.MAIN_WINDOW_NAME,
             self.adjustable_settings.GAMMA,
             300,
             lambda x: None,
@@ -250,7 +248,6 @@ class AsciiVideoEditor:
             )
         )
         depth_frame = (edge_applied_map * 255).astype(np.uint8)
-        # Convert the grayscale depth map to a 3-channel BGR image for stacking
         depth_display = cv2.cvtColor(depth_frame, cv2.COLOR_GRAY2BGR)
         return depth_display
 
@@ -304,10 +301,8 @@ class AsciiVideoEditor:
             self.fixed_settings,
         )
 
-        # --- FIX: RESIZE FINAL_FRAME TO MATCH INPUT FRAME HEIGHT ---
         target_height = frame.shape[0]
 
-        # Calculate the new width while preserving aspect ratio
         current_width = ascii_frame.shape[1]
         current_height = ascii_frame.shape[0]
 
@@ -330,19 +325,12 @@ class AsciiVideoEditor:
         target_height = int(h_orig * scale_factor)
         target_width = int(w_orig * scale_factor)
 
-        # 1. Resize the Original Frame
         display_original = cv2.resize(original_frame, (target_width, target_height))
-
-        # 2. Resize the Depth Map
         display_depth = cv2.resize(depth_frame, (target_width, target_height))
-
-        # 3. Resize the ASCII Frame
-        # To maintain consistency, we force the ASCII frame to match the calculated target size.
         display_ascii = cv2.resize(
             ascii_frame, (target_width, target_height), interpolation=cv2.INTER_NEAREST
         )
 
-        # 4. Stack the frames in the 2x2 layout: (Original, Depth) over (ASCII, ASCII)
         output_display = np.hstack((display_original, display_depth, display_ascii))
         return output_display
 
@@ -452,20 +440,14 @@ class AsciiVideoEditor:
 
         input_video_path = Path(AsciiVideoEditor.INPUT_VIDEOS_FILE_PATH) / file_path
 
-        # 2. Generate Output Path: Ensure the output filename is unique and includes the directory.
-        # a) Remove the extension from the input filename (e.g., "clip.mp4" -> "clip")
         base_name = Path(file_path).stem
-        # b) Construct the final output path string
         output_file_name = f"{base_name}_edited.mp4"
         output_video_path = (
             Path(AsciiVideoEditor.OUTPUT_VIDEOS_FILE_PATH) / output_file_name
         )
 
-        # CRITICAL FIX 1: Ensure the output directory exists
         output_video_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # 3. Setup Video Reader (Capture)
-        # Convert Path object to string for cv2.VideoCapture compatibility
         cap = cv2.VideoCapture(str(input_video_path))
 
         if not cap.isOpened():
@@ -494,17 +476,14 @@ class AsciiVideoEditor:
                 break
             normalized_depth = self.depth_filter.get_normalized_depth_map(frame)
             final_ascii_frame = self.process_ascii_frame(frame, normalized_depth)
-            # Case A: Padding (if final_ascii_frame is too narrow)
+
             if final_ascii_frame.shape[1] < input_width:
                 padding_width = input_width - final_ascii_frame.shape[1]
                 padding = np.zeros((input_height, padding_width, 3), dtype=np.uint8)
                 final_ascii_frame = np.hstack((final_ascii_frame, padding))
-
-            # Case B: Cropping (if final_ascii_frame is too wide—less common)
             elif final_ascii_frame.shape[1] > input_width:
                 final_ascii_frame = final_ascii_frame[:, :input_width]
 
-            # 5. Write Frame
             out.write(final_ascii_frame)
 
             frame_count += 1
@@ -524,11 +503,8 @@ class AsciiVideoEditor:
 
 
 if __name__ == "__main__":
-    """
-    TODO: implement sobel detection for better clarity, add new parameter to influence how much it factors into the final image
-    TODO: MAYBE do the acerola thing where edges are changed depending on angle?
-    """
     video_editor = AsciiVideoEditor()
+    print("To save your settings locally, press S when in the editor. To export your video, press E. To quit at any time, press Q.")
     mode = input(
         "Enter 1 to enter live camera display mode, or Enter 2 to enter video editing mode: "
     )

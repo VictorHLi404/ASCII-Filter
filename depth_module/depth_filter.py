@@ -10,7 +10,6 @@ class DepthFilter:
     def __init__(self, model_type: str):
 
         # --- Configuration ---
-        # Use the CPU for now since the GPU installation failed
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         try:
             self.depth_processor = AutoImageProcessor.from_pretrained(model_type)

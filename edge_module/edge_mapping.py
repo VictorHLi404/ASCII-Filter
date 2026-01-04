@@ -11,14 +11,10 @@ class EdgeMapping:
         edges = cv2.Canny(image, edge_low_threshold, edge_high_threshold)
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
 
-        # 3. Apply Dilation (Thicken the edges)
-        # You can increase the 'iterations' parameter here to make the lines even thicker
         dilated_edges = cv2.dilate(edges, kernel, iterations=4)
 
         blurred_edges = cv2.GaussianBlur(dilated_edges, (3, 3), 0)
 
-        # 5. Normalize
-        # Normalize the blurred map, which now has grayscale values for the edges
         return blurred_edges
 
     @staticmethod
