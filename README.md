@@ -7,9 +7,9 @@ This is an open-source CLI tool used to apply an ASCII art filter onto any sourc
 To run the program, do the following:
 
 1.0: If on a device that contains an NVIDIA GPU that supports CUDA, follow the instructions to [download the CUDA driver](https://developer.nvidia.com/cuda-downloads) for your device. CUDA acceleration will greatly improve the ease of use and quality of output of the application.
-1.1 Have a working version of Python 3.13+.
-1.2 Clone the repository to your local computer. 
-2. Run `pip install requirements.txt` in either a local or virtual environment.
-3. Run `python -m main` in your console. The CLI prompt will activate and run from there.
+1.1: Have a working version of Python 3.13+.
+1.2: Clone the repository to your local computer. 
+2: Run `pip install requirements.txt` in either a local or virtual environment.
+3: Run `python -m main` in your console. The CLI prompt will activate and run from there.
 
 """
